@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Platform {
+  WEB
+  TELEGRAM
+  WHATSAPP
+  DISCORD
+}
+
+enum DocumentStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+model User {
+  id             String       @id @default(uuid())
+  platform       Platform     @default(TELEGRAM)
+  platformUserId String
+  name           String?
+  createdAt      DateTime     @default(now())
+
+  documents     Document[]
+  conversations Conversation[]
+
+  @@unique([platform, platformUserId])
+  @@map("users")
+}
+
+model Document {
+  id               String         @id @default(uuid())
+  userId           String
+  filename         String
+  originalFilename String
+  documentType     String?
+  status           DocumentStatus @default(UPLOADING)
+  pageCount        Int?
+  createdAt        DateTime       @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uploadJobs UploadJob[]
+
+  @@map("documents")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  createdAt      DateTime     @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model UploadJob {
+  id         String           @id @default(uuid())
+  documentId String
+  status     DocumentStatus   @default(UPLOADING)
+  progress   Int              @default(0)
+  error      String?
+  createdAt  DateTime         @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("upload_jobs")
+}

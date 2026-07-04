@@ -10,4 +10,10 @@ export const configuration = () => ({
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
   },
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY,
+    secretKey: process.env.SUPABASE_SECRET_KEY,
+    jwksUrl: process.env.SUPABASE_JWKS_URL,
+  },
 });
