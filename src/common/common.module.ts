@@ -1,8 +1,9 @@
 import { Global, Module } from '@nestjs/common';
+import { ParserService } from './parsers/parser.service';
 
 @Global()
 @Module({
-  providers: [],
-  exports: [],
+  providers: [ParserService],
+  exports: [ParserService],
 })
 export class CommonModule {}
