@@ -3,8 +3,12 @@ import * as XLSX from 'xlsx';
 import { DocumentContent } from './types';
 
 export async function parseExcel(filePath: string, originalFilename: string): Promise<DocumentContent> {
+  console.log('[Excel Parser] Reading Excel file...');
   const buffer = fs.readFileSync(filePath);
+  console.log('[Excel Parser] File read, size:', buffer.length, 'bytes');
+
   const workbook = XLSX.read(buffer, { type: 'buffer' });
+  console.log('[Excel Parser] Sheets found:', workbook.SheetNames);
 
   const lines: string[] = [];
   const sheetNames = workbook.SheetNames;
@@ -34,8 +38,11 @@ export async function parseExcel(filePath: string, originalFilename: string): Pr
     }
   }
 
+  const result = lines.join('\n\n');
+  console.log('[Excel Parser] Extracted text length:', result.length, 'chars');
+
   return {
-    text: lines.join('\n\n'),
+    text: result,
     metadata: {
       sheetNames,
       originalFilename,
