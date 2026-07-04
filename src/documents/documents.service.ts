@@ -42,16 +42,16 @@ export class DocumentsService {
       uploadJobId = uploadJob.id;
       console.log('[DocumentService] Upload job created:', { id: uploadJob.id });
 
-      console.log('[DocumentService] Step 3: Updating status to PROCESSING');
+      console.log('[DocumentService] Step 3: Updating status to PARSING');
       await this.prisma.document.update({
         where: { id: document.id },
-        data: { status: 'PROCESSING' },
+        data: { status: 'PARSING' },
       });
       await this.prisma.uploadJob.update({
         where: { id: uploadJob.id },
-        data: { status: 'PROCESSING', progress: 25 },
+        data: { status: 'PARSING', progress: 25 },
       });
-      console.log('[DocumentService] Status updated to PROCESSING');
+      console.log('[DocumentService] Status updated to PARSING');
 
       console.log('[DocumentService] Step 4: Calling ParserService.parse()');
       console.log('[DocumentService]   → filePath:', file.path);

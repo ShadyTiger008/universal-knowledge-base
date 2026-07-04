@@ -16,7 +16,10 @@ enum Platform {
 
 enum DocumentStatus {
   UPLOADING
-  PROCESSING
+  PARSING
+  CHUNKING
+  EMBEDDING
+  INDEXING
   READY
   FAILED
 }
