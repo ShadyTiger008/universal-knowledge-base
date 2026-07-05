@@ -18,7 +18,7 @@ describe('ChunkingService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should route PDF files to chunkPdf', async () => {
+  it('should route PDF files to chunkPdf with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'text',
       text: 'PDF content',
@@ -31,11 +31,13 @@ describe('ChunkingService', () => {
     const spy = jest.spyOn(service as any, 'chunkPdf');
     const result = await service.chunk('test-doc-id', parsedData);
 
-    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData);
+    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
     expect(result.serviceUsed).toBe('chunkPdf');
+    expect(result.cleaningReport).toBeDefined();
+    expect(result.cleaningReport.textStats).toBeDefined();
   });
 
-  it('should route Excel files without guide sheets to chunkExcel', async () => {
+  it('should route Excel files without guide sheets to chunkExcel with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'workbook',
       workbookName: 'test.xlsx',
@@ -43,7 +45,13 @@ describe('ChunkingService', () => {
         {
           sheetName: 'Sheet1',
           headers: ['Name'],
-          rows: [],
+          rows: [
+            {
+              rowNumber: 1,
+              values: ['Alice'],
+              headers: ['Name'],
+            }
+          ],
           sheetType: 'TABLE',
         },
       ],
@@ -56,11 +64,14 @@ describe('ChunkingService', () => {
     const spy = jest.spyOn(service as any, 'chunkExcel');
     const result = await service.chunk('test-doc-id', parsedData);
 
-    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData);
+    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
     expect(result.serviceUsed).toBe('chunkExcel');
+    expect(result.cleaningReport).toBeDefined();
+    expect(result.cleaningReport.rowsProcessed).toBe(1);
+    expect(result.cleaningReport.rowsRemoved).toBe(0);
   });
 
-  it('should route Excel files with GUIDE sheets to creativeIndexChunk', async () => {
+  it('should route Excel files with GUIDE sheets to creativeIndexChunk with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'workbook',
       workbookName: 'instructions.xlsx',
@@ -68,7 +79,13 @@ describe('ChunkingService', () => {
         {
           sheetName: 'Readme',
           headers: ['Instructions'],
-          rows: [],
+          rows: [
+            {
+              rowNumber: 1,
+              values: ['Read instructions'],
+              headers: ['Instructions'],
+            }
+          ],
           sheetType: 'GUIDE',
         },
       ],
@@ -81,11 +98,12 @@ describe('ChunkingService', () => {
     const spy = jest.spyOn(service as any, 'creativeIndexChunk');
     const result = await service.chunk('test-doc-id', parsedData);
 
-    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, 'Workbook contains GUIDE sheet');
+    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, 'Workbook contains GUIDE sheet', expect.any(Object));
     expect(result.serviceUsed).toBe('creativeIndexChunk');
+    expect(result.cleaningReport).toBeDefined();
   });
 
-  it('should route Markdown files to chunkMarkdown', async () => {
+  it('should route Markdown files to chunkMarkdown with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'text',
       text: '# Welcome',
@@ -98,11 +116,12 @@ describe('ChunkingService', () => {
     const spy = jest.spyOn(service as any, 'chunkMarkdown');
     const result = await service.chunk('test-doc-id', parsedData);
 
-    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData);
+    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
     expect(result.serviceUsed).toBe('chunkMarkdown');
+    expect(result.cleaningReport).toBeDefined();
   });
 
-  it('should route CSV files to chunkCsv', async () => {
+  it('should route CSV files to chunkCsv with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'workbook',
       workbookName: 'data.csv',
@@ -110,7 +129,13 @@ describe('ChunkingService', () => {
         {
           sheetName: 'data',
           headers: ['col1'],
-          rows: [],
+          rows: [
+            {
+              rowNumber: 1,
+              values: ['val1'],
+              headers: ['col1'],
+            }
+          ],
           sheetType: 'TABLE',
         },
       ],
@@ -123,11 +148,12 @@ describe('ChunkingService', () => {
     const spy = jest.spyOn(service as any, 'chunkCsv');
     const result = await service.chunk('test-doc-id', parsedData);
 
-    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData);
+    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
     expect(result.serviceUsed).toBe('chunkCsv');
+    expect(result.cleaningReport).toBeDefined();
   });
 
-  it('should route unknown files to chunkText by default', async () => {
+  it('should route unknown files to chunkText by default with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'text',
       text: 'some raw text',
@@ -140,7 +166,8 @@ describe('ChunkingService', () => {
     const spy = jest.spyOn(service as any, 'chunkText');
     const result = await service.chunk('test-doc-id', parsedData);
 
-    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData);
+    expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
     expect(result.serviceUsed).toBe('chunkText');
+    expect(result.cleaningReport).toBeDefined();
   });
 });
