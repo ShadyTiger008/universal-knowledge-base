@@ -1,13 +1,78 @@
 import { Injectable } from '@nestjs/common';
 import { DocumentContent } from '../parsers/types';
+import { TextCleanerService } from '../cleaner/text-cleaner.service';
 
 @Injectable()
 export class ChunkingService {
+  constructor(private readonly textCleanerService: TextCleanerService) {}
+
   async chunk(documentId: string, parsedData: DocumentContent): Promise<any> {
     console.log(`[ChunkingService] Starting chunking process for document: ${documentId}`);
     
+    // -------------------------------------------------------------
+    // STEP 1: CLEAN THE PARSED DATA USING TEXT CLEANER SERVICE
+    // -------------------------------------------------------------
+    console.log(`[ChunkingService] Cleaning parsed data before routing...`);
     const docType = parsedData.metadata.documentType?.toLowerCase();
     
+    let cleanedTextResult = '';
+
+    if (parsedData.type === 'text') {
+      const originalText = parsedData.text;
+      const isMarkdown = docType === 'md' || docType === 'markdown';
+      
+      if (isMarkdown) {
+        console.log(`[ChunkingService] Applying Markdown cleaning rules to raw text`);
+        cleanedTextResult = this.textCleanerService.cleanMarkdown(originalText);
+      } else {
+        console.log(`[ChunkingService] Applying Standard Text cleaning rules to raw text`);
+        cleanedTextResult = this.textCleanerService.cleanText(originalText);
+      }
+      
+      console.log(`[ChunkingService] Cleaning stats: Before: ${originalText.length} chars, After: ${cleanedTextResult.length} chars`);
+      // Update parsedData with the cleaned text
+      parsedData.text = cleanedTextResult;
+    } else if (parsedData.type === 'rows') {
+      console.log(`[ChunkingService] Applying cleaning rules to CSV Row values...`);
+      parsedData.rows = parsedData.rows.map(row => {
+        const cleanedValues = row.values.map(val => this.textCleanerService.cleanText(val));
+        const cleanedHeaders = row.headers?.map(header => this.textCleanerService.cleanText(header));
+        const cleanedHeadingText = row.headingText ? this.textCleanerService.cleanText(row.headingText) : undefined;
+        return {
+          ...row,
+          values: cleanedValues,
+          headers: cleanedHeaders,
+          headingText: cleanedHeadingText,
+        };
+      });
+      console.log(`[ChunkingService] Cleaned ${parsedData.rows.length} rows.`);
+    } else if (parsedData.type === 'workbook') {
+      console.log(`[ChunkingService] Applying cleaning rules to Excel Workbook sheets...`);
+      parsedData.sheets = parsedData.sheets.map(sheet => {
+        const cleanedHeaders = sheet.headers.map(header => this.textCleanerService.cleanText(header));
+        const cleanedRows = sheet.rows.map(row => {
+          const cleanedValues = row.values.map(val => this.textCleanerService.cleanText(val));
+          const cleanedHeadersRow = row.headers?.map(header => this.textCleanerService.cleanText(header));
+          const cleanedHeadingText = row.headingText ? this.textCleanerService.cleanText(row.headingText) : undefined;
+          return {
+            ...row,
+            values: cleanedValues,
+            headers: cleanedHeadersRow,
+            headingText: cleanedHeadingText,
+          };
+        });
+        return {
+          ...sheet,
+          headers: cleanedHeaders,
+          rows: cleanedRows,
+        };
+      });
+      console.log(`[ChunkingService] Cleaned ${parsedData.sheets.length} sheets.`);
+    }
+
+    // -------------------------------------------------------------
+    // STEP 2: ROUTE TO APPROPRIATE CHUNKER
+    // -------------------------------------------------------------
     // Check metadata to see if it should route to the creative index chunk service
     if (parsedData.type === 'workbook') {
       const hasGuideSheet = parsedData.sheets.some(sheet => sheet.sheetType === 'GUIDE');
@@ -53,43 +118,36 @@ export class ChunkingService {
 
   private async chunkPdf(documentId: string, parsedData: DocumentContent) {
     console.log(`[ChunkingService] Executing PDF chunking function for document: ${documentId}`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'chunkPdf', chunksCount: 0 };
+    return { success: true, serviceUsed: 'chunkPdf', cleanedData: parsedData };
   }
 
   private async chunkExcel(documentId: string, parsedData: DocumentContent) {
     console.log(`[ChunkingService] Executing Excel chunking function for document: ${documentId}`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'chunkExcel', chunksCount: 0 };
+    return { success: true, serviceUsed: 'chunkExcel', cleanedData: parsedData };
   }
 
   private async chunkCsv(documentId: string, parsedData: DocumentContent) {
     console.log(`[ChunkingService] Executing CSV chunking function for document: ${documentId}`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'chunkCsv', chunksCount: 0 };
+    return { success: true, serviceUsed: 'chunkCsv', cleanedData: parsedData };
   }
 
   private async chunkMarkdown(documentId: string, parsedData: DocumentContent) {
     console.log(`[ChunkingService] Executing Markdown chunking function for document: ${documentId}`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'chunkMarkdown', chunksCount: 0 };
+    return { success: true, serviceUsed: 'chunkMarkdown', cleanedData: parsedData };
   }
 
   private async chunkDocx(documentId: string, parsedData: DocumentContent) {
     console.log(`[ChunkingService] Executing Docx chunking function for document: ${documentId}`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'chunkDocx', chunksCount: 0 };
+    return { success: true, serviceUsed: 'chunkDocx', cleanedData: parsedData };
   }
 
   private async chunkText(documentId: string, parsedData: DocumentContent) {
     console.log(`[ChunkingService] Executing Text chunking function for document: ${documentId}`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'chunkText', chunksCount: 0 };
+    return { success: true, serviceUsed: 'chunkText', cleanedData: parsedData };
   }
 
   private async creativeIndexChunk(documentId: string, parsedData: DocumentContent, reason: string) {
     console.log(`[ChunkingService] Executing Creative Index chunking function for document: ${documentId} (Reason: ${reason})`);
-    // Stub implementation
-    return { success: true, serviceUsed: 'creativeIndexChunk', chunksCount: 0 };
+    return { success: true, serviceUsed: 'creativeIndexChunk', cleanedData: parsedData };
   }
 }

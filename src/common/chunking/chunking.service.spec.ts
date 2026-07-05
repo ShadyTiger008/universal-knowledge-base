@@ -1,13 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChunkingService } from './chunking.service';
 import { DocumentContent } from '../parsers/types';
+import { TextCleanerService } from '../cleaner/text-cleaner.service';
 
 describe('ChunkingService', () => {
   let service: ChunkingService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ChunkingService],
+      providers: [ChunkingService, TextCleanerService],
     }).compile();
 
     service = module.get<ChunkingService>(ChunkingService);
