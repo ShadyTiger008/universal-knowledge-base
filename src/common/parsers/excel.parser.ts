@@ -17,6 +17,47 @@ function toDenseArray(arr: unknown[]): string[] {
   return dense;
 }
 
+function classifySheet(sheetName: string, headers: string[]): 'TABLE' | 'GUIDE' | 'LIST' | 'CHANGELOG' {
+  const lowerName = sheetName.toLowerCase();
+  if (lowerName.includes('change log') || lowerName.includes('changelog') || lowerName.includes('history')) {
+    return 'CHANGELOG';
+  }
+  if (
+    lowerName.includes('guide') || 
+    lowerName.includes('instruction') || 
+    lowerName.includes('rule') || 
+    lowerName.includes('rights') ||
+    lowerName.includes('manual') ||
+    lowerName.includes('procedure')
+  ) {
+    return 'GUIDE';
+  }
+
+  // Check headers for keywords that indicate a structured table
+  const lowerHeaders = headers.map(h => h.toLowerCase());
+  const hasTableKeywords = lowerHeaders.some(h =>
+    h.includes('crime') || 
+    h.includes('fine') || 
+    h.includes('charge') || 
+    h.includes('code') || 
+    h.includes('description') || 
+    h.includes('stars') ||
+    h.includes('penalty') ||
+    h.includes('bail')
+  );
+
+  if (hasTableKeywords) {
+    return 'TABLE';
+  }
+
+  // Fallback to LIST if there is only one column or a basic Heading column
+  if (headers.length <= 1 || (headers.length === 2 && lowerHeaders.includes('heading'))) {
+    return 'LIST';
+  }
+
+  return 'TABLE';
+}
+
 export async function parseExcel(filePath: string, originalFilename: string): Promise<WorkbookDocumentContent> {
   console.log('[Excel Parser] Reading Excel file...');
   const buffer = fs.readFileSync(filePath);
@@ -109,10 +150,13 @@ export async function parseExcel(filePath: string, originalFilename: string): Pr
       }
     }
 
+    const sheetType = classifySheet(sheetName, headers);
+
     sheets.push({
       sheetName,
       headers,
       rows: parsedRows,
+      sheetType,
     });
 
     totalRowCount += parsedRows.length;

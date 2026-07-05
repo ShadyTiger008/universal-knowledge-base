@@ -33,6 +33,7 @@ export interface WorkbookSheet {
   sheetName: string;
   headers: string[];
   rows: Row[];
+  sheetType: 'TABLE' | 'GUIDE' | 'LIST' | 'CHANGELOG';
 }
 
 export interface WorkbookDocumentContent {
