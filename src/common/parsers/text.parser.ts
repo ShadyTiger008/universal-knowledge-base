@@ -7,6 +7,7 @@ export async function parseText(filePath: string, originalFilename: string): Pro
   console.log('[TXT Parser] File read, length:', text.length, 'chars');
 
   return {
+    type: 'text',
     text: text.trim(),
     metadata: {
       originalFilename,

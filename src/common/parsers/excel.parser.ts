@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import * as XLSX from 'xlsx';
-import { DocumentContent } from './types';
+import { RowDocumentContent, Row } from './types';
 
-export async function parseExcel(filePath: string, originalFilename: string): Promise<DocumentContent> {
+export async function parseExcel(filePath: string, originalFilename: string): Promise<RowDocumentContent> {
   console.log('[Excel Parser] Reading Excel file...');
   const buffer = fs.readFileSync(filePath);
   console.log('[Excel Parser] File read, size:', buffer.length, 'bytes');
@@ -10,43 +10,45 @@ export async function parseExcel(filePath: string, originalFilename: string): Pr
   const workbook = XLSX.read(buffer, { type: 'buffer' });
   console.log('[Excel Parser] Sheets found:', workbook.SheetNames);
 
-  const lines: string[] = [];
-  const sheetNames = workbook.SheetNames;
+  const allRows: Row[] = [];
+  let totalColumns = 0;
+  let combinedHeaders: string[] = [];
 
-  for (const sheetName of sheetNames) {
+  for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
-    const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-    if (rows.length === 0) continue;
+    if (rawRows.length < 2) continue;
 
-    const headerRow = rows[0] as unknown[];
-    const dataRows = rows.slice(1);
-
-    lines.push(`Sheet: ${sheetName}`);
-
-    for (const row of dataRows) {
-      const parts: string[] = [];
-      for (let i = 0; i < headerRow.length; i++) {
-        const value = row[i];
-        if (value !== undefined && value !== null && value !== '') {
-          parts.push(`${headerRow[i]}: ${value}`);
-        }
-      }
-      if (parts.length > 0) {
-        lines.push(parts.join('\n'));
-      }
+    const headerRow = (rawRows[0] as unknown[]).map(String);
+    if (headerRow.length > totalColumns) {
+      totalColumns = headerRow.length;
     }
+    combinedHeaders = headerRow;
+
+    const dataRows = rawRows.slice(1);
+    const parsedRows: Row[] = dataRows.map((row, index) => ({
+      rowNumber: index + 1,
+      sheetName,
+      values: (row as unknown[]).map(v => v != null ? String(v) : ''),
+    }));
+
+    allRows.push(...parsedRows);
+    console.log(`[Excel Parser] Sheet "${sheetName}": ${parsedRows.length} rows`);
   }
 
-  const result = lines.join('\n\n');
-  console.log('[Excel Parser] Extracted text length:', result.length, 'chars');
+  console.log('[Excel Parser] Total rows across all sheets:', allRows.length);
 
   return {
-    text: result,
+    type: 'rows',
+    rows: allRows,
     metadata: {
-      sheetNames,
+      sheetNames: workbook.SheetNames,
       originalFilename,
       documentType: 'xlsx',
+      rowCount: allRows.length,
+      columnCount: totalColumns,
+      headers: combinedHeaders,
     },
   };
 }

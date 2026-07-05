@@ -12,6 +12,7 @@ export async function parseDocx(filePath: string, originalFilename: string): Pro
   console.log('[DOCX Parser] Extracted text length:', result.value.length, 'chars');
 
   return {
+    type: 'text',
     text: result.value.trim(),
     metadata: {
       originalFilename,

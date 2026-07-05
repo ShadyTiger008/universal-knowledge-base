@@ -20,6 +20,8 @@ const ALLOWED_MIMES = [
   'text/plain',
   'text/markdown',
   'text/x-markdown',
+  'text/csv',
+  'application/csv',
 ];
 
 @ApiTags('documents')

@@ -7,6 +7,7 @@ export async function parseMarkdown(filePath: string, originalFilename: string):
   console.log('[Markdown Parser] File read, length:', text.length, 'chars');
 
   return {
+    type: 'text',
     text: text.trim(),
     metadata: {
       originalFilename,

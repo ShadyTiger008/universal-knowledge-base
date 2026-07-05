@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ParserService } from '../common/parsers/parser.service';
+import { DocumentStatus } from '@prisma/client';
 import { promises as fs } from 'fs';
 
 @Injectable()
@@ -25,7 +26,7 @@ export class DocumentsService {
           filename: file.filename,
           originalFilename: file.originalname,
           documentType: file.mimetype,
-          status: 'UPLOADING',
+          status: DocumentStatus.UPLOADING,
         },
       });
       documentId = document.id;
@@ -35,7 +36,7 @@ export class DocumentsService {
       const uploadJob = await this.prisma.uploadJob.create({
         data: {
           documentId: document.id,
-          status: 'UPLOADING',
+          status: DocumentStatus.UPLOADING,
           progress: 0,
         },
       });
@@ -45,38 +46,58 @@ export class DocumentsService {
       console.log('[DocumentService] Step 3: Updating status to PARSING');
       await this.prisma.document.update({
         where: { id: document.id },
-        data: { status: 'PARSING' },
+        data: { status: DocumentStatus.PARSING },
       });
       await this.prisma.uploadJob.update({
         where: { id: uploadJob.id },
-        data: { status: 'PARSING', progress: 25 },
+        data: { status: DocumentStatus.PARSING, progress: 25 },
       });
-      console.log('[DocumentService] Status updated to PARSING');
 
       console.log('[DocumentService] Step 4: Calling ParserService.parse()');
-      console.log('[DocumentService]   → filePath:', file.path);
-      console.log('[DocumentService]   → mimeType:', file.mimetype);
       const parsed = await this.parserService.parse(
         file.path,
         file.mimetype,
         file.originalname,
       );
-      console.log('[DocumentService] ParserService returned successfully!');
-      console.log('[DocumentService]   → text length:', parsed.text.length, 'chars');
-      console.log('[DocumentService]   → metadata:', JSON.stringify(parsed.metadata));
-      console.log('[DocumentService]   → preview:', parsed.text.substring(0, 200), '...');
+      console.log('[DocumentService] Parser returned type:', parsed.type);
+
+      if (parsed.type === 'rows') {
+        console.log('[DocumentService] Rows:', parsed.rows.length, ' total');
+        if (parsed.rows.length > 0) {
+          console.log('[DocumentService] First row:', parsed.rows[0].values);
+          console.log('[DocumentService] Last row:', parsed.rows[parsed.rows.length - 1].values);
+        }
+        console.log('[DocumentService] Headers:', parsed.metadata.headers?.join(', '));
+      } else {
+        console.log('[DocumentService] Text length:', parsed.text.length, 'chars');
+        console.log('[DocumentService] Preview:', parsed.text.substring(0, 200), '...');
+      }
 
       console.log('[DocumentService] Step 5: Updating document status to READY');
+      const updateData: Record<string, unknown> = {
+        status: DocumentStatus.READY,
+      };
+
+      if (parsed.metadata.pageCount) {
+        updateData.pageCount = parsed.metadata.pageCount;
+      }
+      if (parsed.metadata.rowCount !== undefined) {
+        updateData.rowCount = parsed.metadata.rowCount;
+      }
+      if (parsed.metadata.columnCount !== undefined) {
+        updateData.columnCount = parsed.metadata.columnCount;
+      }
+      if (parsed.metadata.headers) {
+        updateData.headers = parsed.metadata.headers;
+      }
+
       await this.prisma.document.update({
         where: { id: document.id },
-        data: {
-          status: 'READY',
-          pageCount: parsed.metadata.pageCount ?? null,
-        },
+        data: updateData,
       });
       await this.prisma.uploadJob.update({
         where: { id: uploadJob.id },
-        data: { status: 'READY', progress: 100 },
+        data: { status: DocumentStatus.READY, progress: 100 },
       });
       console.log('[DocumentService] Document marked as READY');
 
@@ -86,30 +107,32 @@ export class DocumentsService {
       return {
         id: document.id,
         filename: file.originalname,
-        status: 'READY',
+        status: DocumentStatus.READY,
+        documentType: parsed.metadata.documentType,
         pageCount: parsed.metadata.pageCount,
         sheetNames: parsed.metadata.sheetNames,
-        textLength: parsed.text.length,
+        rowCount: parsed.metadata.rowCount,
+        columnCount: parsed.metadata.columnCount,
+        headers: parsed.metadata.headers,
+        textLength: parsed.type === 'text' ? parsed.text.length : undefined,
       };
     } catch (error) {
       console.error('[DocumentService] ERROR in upload pipeline:', error.message);
       console.error('[DocumentService] Stack:', error.stack);
 
       if (documentId) {
-        console.log('[DocumentService] Marking document as FAILED');
         await this.prisma.document
           .update({
             where: { id: documentId },
-            data: { status: 'FAILED' },
+            data: { status: DocumentStatus.FAILED },
           })
           .catch(() => {});
       }
       if (uploadJobId) {
-        console.log('[DocumentService] Marking upload job as FAILED');
         await this.prisma.uploadJob
           .update({
             where: { id: uploadJobId },
-            data: { status: 'FAILED', error: error.message },
+            data: { status: DocumentStatus.FAILED, error: error.message },
           })
           .catch(() => {});
       }

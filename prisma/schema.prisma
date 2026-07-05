@@ -51,6 +51,9 @@ model Document {
   documentType     String?
   status           DocumentStatus @default(UPLOADING)
   pageCount        Int?
+  rowCount         Int?
+  columnCount      Int?
+  headers          Json?
   createdAt        DateTime       @default(now())
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)

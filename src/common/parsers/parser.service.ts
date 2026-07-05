@@ -5,6 +5,7 @@ import { parseExcel } from './excel.parser';
 import { parseDocx } from './docx.parser';
 import { parseText } from './text.parser';
 import { parseMarkdown } from './markdown.parser';
+import { parseCsv } from './csv.parser';
 
 @Injectable()
 export class ParserService {
@@ -35,6 +36,11 @@ export class ParserService {
       case 'text/x-markdown':
         console.log('[ParserService] Routing to Markdown parser');
         return parseMarkdown(filePath, originalFilename);
+
+      case 'text/csv':
+      case 'application/csv':
+        console.log('[ParserService] Routing to CSV parser');
+        return parseCsv(filePath, originalFilename);
 
       default:
         console.error('[ParserService] Unsupported MIME type:', mimeType);

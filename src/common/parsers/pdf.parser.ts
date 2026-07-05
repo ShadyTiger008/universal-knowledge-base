@@ -15,6 +15,7 @@ export async function parsePdf(filePath: string, originalFilename: string): Prom
   console.log('[PDF Parser] Extracted text length:', textResult.text.length, 'chars');
 
   return {
+    type: 'text',
     text: textResult.text.trim(),
     metadata: {
       pageCount: textResult.total,
