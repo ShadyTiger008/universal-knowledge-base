@@ -1,8 +1,23 @@
 import * as fs from 'node:fs';
 import * as XLSX from 'xlsx';
-import { RowDocumentContent, Row } from './types';
+import { WorkbookDocumentContent, WorkbookSheet, Row } from './types';
 
-export async function parseExcel(filePath: string, originalFilename: string): Promise<RowDocumentContent> {
+function isEmptyRow(row: any[]): boolean {
+  if (!row || row.length === 0) return true;
+  return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
+}
+
+function toDenseArray(arr: unknown[]): string[] {
+  if (!arr) return [];
+  const dense: string[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const val = arr[i];
+    dense.push(val != null ? String(val).trim() : '');
+  }
+  return dense;
+}
+
+export async function parseExcel(filePath: string, originalFilename: string): Promise<WorkbookDocumentContent> {
   console.log('[Excel Parser] Reading Excel file...');
   const buffer = fs.readFileSync(filePath);
   console.log('[Excel Parser] File read, size:', buffer.length, 'bytes');
@@ -10,45 +25,113 @@ export async function parseExcel(filePath: string, originalFilename: string): Pr
   const workbook = XLSX.read(buffer, { type: 'buffer' });
   console.log('[Excel Parser] Sheets found:', workbook.SheetNames);
 
-  const allRows: Row[] = [];
-  let totalColumns = 0;
-  let combinedHeaders: string[] = [];
+  const sheets: WorkbookSheet[] = [];
+  let totalRowCount = 0;
+  let maxColumns = 0;
+  const headersMap: Record<string, string[]> = {};
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-    if (rawRows.length < 2) continue;
+    // 1. Filter out empty rows
+    const nonEmptyRawRows = rawRows.filter(row => !isEmptyRow(row as any[]));
 
-    const headerRow = (rawRows[0] as unknown[]).map(String);
-    if (headerRow.length > totalColumns) {
-      totalColumns = headerRow.length;
+    if (nonEmptyRawRows.length === 0) {
+      console.log(`[Excel Parser] Sheet "${sheetName}" is empty, skipping.`);
+      continue;
     }
-    combinedHeaders = headerRow;
 
-    const dataRows = rawRows.slice(1);
-    const parsedRows: Row[] = dataRows.map((row, index) => ({
-      rowNumber: index + 1,
+    // 2. Detect the headers row (first row with more than 1 non-empty cell)
+    let headerIndex = -1;
+    for (let i = 0; i < nonEmptyRawRows.length; i++) {
+      const row = nonEmptyRawRows[i] as unknown[];
+      const nonEmptyCells = row.filter(cell => cell !== null && cell !== undefined && String(cell).trim() !== '');
+      if (nonEmptyCells.length > 1) {
+        headerIndex = i;
+        break;
+      }
+    }
+
+    let headers: string[] = [];
+    if (headerIndex !== -1) {
+      headers = toDenseArray(nonEmptyRawRows[headerIndex] as unknown[]);
+    } else {
+      headers = ['Heading'];
+    }
+
+    headersMap[sheetName] = headers;
+    if (headers.length > maxColumns) {
+      maxColumns = headers.length;
+    }
+
+    // 3. Process rows, separating section headings from data rows
+    const parsedRows: Row[] = [];
+    let currentHeading = '';
+
+    for (let i = 0; i < nonEmptyRawRows.length; i++) {
+      const row = nonEmptyRawRows[i] as unknown[];
+
+      if (i === headerIndex) {
+        // Skip column header row itself
+        continue;
+      }
+
+      // Check if it is a section heading row (exactly 1 non-empty cell)
+      const nonEmptyCells = row.filter(cell => cell !== null && cell !== undefined && String(cell).trim() !== '');
+      const isHeading = nonEmptyCells.length === 1;
+
+      if (isHeading) {
+        currentHeading = String(nonEmptyCells[0]).trim();
+        parsedRows.push({
+          rowNumber: i + 1,
+          values: [currentHeading],
+          sheetName,
+          headers,
+          isHeading: true,
+          headingText: currentHeading,
+        });
+      } else {
+        // Normal data row
+        const values = headers.map((_, colIndex) => {
+          const val = row[colIndex];
+          return val != null ? String(val).trim() : '';
+        });
+
+        parsedRows.push({
+          rowNumber: i + 1,
+          values,
+          sheetName,
+          headers,
+          isHeading: false,
+          headingText: currentHeading || undefined,
+        });
+      }
+    }
+
+    sheets.push({
       sheetName,
-      values: (row as unknown[]).map(v => v != null ? String(v) : ''),
-    }));
+      headers,
+      rows: parsedRows,
+    });
 
-    allRows.push(...parsedRows);
-    console.log(`[Excel Parser] Sheet "${sheetName}": ${parsedRows.length} rows`);
+    totalRowCount += parsedRows.length;
+    console.log(`[Excel Parser] Sheet "${sheetName}": ${parsedRows.length} rows parsed`);
   }
 
-  console.log('[Excel Parser] Total rows across all sheets:', allRows.length);
+  console.log('[Excel Parser] Total sheets parsed:', sheets.length, 'Total rows:', totalRowCount);
 
   return {
-    type: 'rows',
-    rows: allRows,
+    type: 'workbook',
+    workbookName: originalFilename,
+    sheets,
     metadata: {
       sheetNames: workbook.SheetNames,
       originalFilename,
       documentType: 'xlsx',
-      rowCount: allRows.length,
-      columnCount: totalColumns,
-      headers: combinedHeaders,
+      rowCount: totalRowCount,
+      columnCount: maxColumns,
+      headers: headersMap,
     },
   };
 }

@@ -61,13 +61,23 @@ export class DocumentsService {
       );
       console.log('[DocumentService] Parser returned type:', parsed.type);
 
-      if (parsed.type === 'rows') {
+      if (parsed.type === 'workbook') {
+        console.log('[DocumentService] Workbook sheets:', parsed.sheets.length, 'total');
+        for (const sheet of parsed.sheets) {
+          console.log(`[DocumentService]   Sheet "${sheet.sheetName}": ${sheet.rows.length} rows`);
+          if (sheet.rows.length > 0) {
+            console.log('[DocumentService]     First row:', sheet.rows[0].values);
+            console.log('[DocumentService]     Last row:', sheet.rows[sheet.rows.length - 1].values);
+          }
+          console.log('[DocumentService]     Headers:', sheet.headers.join(', '));
+        }
+      } else if (parsed.type === 'rows') {
         console.log('[DocumentService] Rows:', parsed.rows.length, ' total');
         if (parsed.rows.length > 0) {
           console.log('[DocumentService] First row:', parsed.rows[0].values);
           console.log('[DocumentService] Last row:', parsed.rows[parsed.rows.length - 1].values);
         }
-        console.log('[DocumentService] Headers:', parsed.metadata.headers?.join(', '));
+        console.log('[DocumentService] Headers:', Array.isArray(parsed.metadata.headers) ? parsed.metadata.headers.join(', ') : '');
       } else {
         console.log('[DocumentService] Text length:', parsed.text.length, 'chars');
         console.log('[DocumentService] Preview:', parsed.text.substring(0, 200), '...');
@@ -88,7 +98,7 @@ export class DocumentsService {
         updateData.columnCount = parsed.metadata.columnCount;
       }
       if (parsed.metadata.headers) {
-        updateData.headers = parsed.metadata.headers;
+        updateData.headers = parsed.metadata.headers as any;
       }
 
       await this.prisma.document.update({

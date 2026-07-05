@@ -2,6 +2,9 @@ export interface Row {
   rowNumber: number;
   values: string[];
   sheetName?: string;
+  headers?: string[];
+  isHeading?: boolean;
+  headingText?: string;
 }
 
 export interface Metadata {
@@ -11,7 +14,7 @@ export interface Metadata {
   documentType: string;
   rowCount?: number;
   columnCount?: number;
-  headers?: string[];
+  headers?: string[] | Record<string, string[]>;
 }
 
 export interface TextDocumentContent {
@@ -26,7 +29,20 @@ export interface RowDocumentContent {
   metadata: Metadata;
 }
 
-export type DocumentContent = TextDocumentContent | RowDocumentContent;
+export interface WorkbookSheet {
+  sheetName: string;
+  headers: string[];
+  rows: Row[];
+}
+
+export interface WorkbookDocumentContent {
+  type: 'workbook';
+  workbookName: string;
+  sheets: WorkbookSheet[];
+  metadata: Metadata;
+}
+
+export type DocumentContent = TextDocumentContent | RowDocumentContent | WorkbookDocumentContent;
 
 export interface ChunkResult {
   content: string;
