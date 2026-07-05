@@ -17,44 +17,68 @@ function toDenseArray(arr: unknown[]): string[] {
   return dense;
 }
 
-function classifySheet(sheetName: string, headers: string[]): 'TABLE' | 'GUIDE' | 'LIST' | 'CHANGELOG' {
+function classifySheet(sheetName: string, headers: string[], rows: Row[]): 'TABLE' | 'GUIDE' | 'LIST' | 'CHANGELOG' {
   const lowerName = sheetName.toLowerCase();
-  if (lowerName.includes('change log') || lowerName.includes('changelog') || lowerName.includes('history')) {
+
+  // 1. Log or history sheets are always CHANGELOG
+  if (
+    lowerName.includes('changelog') || 
+    lowerName.includes('change log') || 
+    lowerName.includes('history') || 
+    lowerName.includes('version') ||
+    lowerName.includes('log')
+  ) {
     return 'CHANGELOG';
   }
+
+  // 2. Generic document type indicator keywords in sheet name
   if (
     lowerName.includes('guide') || 
     lowerName.includes('instruction') || 
     lowerName.includes('rule') || 
     lowerName.includes('rights') ||
     lowerName.includes('manual') ||
-    lowerName.includes('procedure')
+    lowerName.includes('procedure') ||
+    lowerName.includes('faq') ||
+    lowerName.includes('help') ||
+    lowerName.includes('readme')
   ) {
     return 'GUIDE';
   }
 
-  // Check headers for keywords that indicate a structured table
-  const lowerHeaders = headers.map(h => h.toLowerCase());
-  const hasTableKeywords = lowerHeaders.some(h =>
-    h.includes('crime') || 
-    h.includes('fine') || 
-    h.includes('charge') || 
-    h.includes('code') || 
-    h.includes('description') || 
-    h.includes('stars') ||
-    h.includes('penalty') ||
-    h.includes('bail')
-  );
-
-  if (hasTableKeywords) {
-    return 'TABLE';
-  }
-
-  // Fallback to LIST if there is only one column or a basic Heading column
-  if (headers.length <= 1 || (headers.length === 2 && lowerHeaders.includes('heading'))) {
+  // 3. Single column sheets are always LIST
+  if (headers.length <= 1) {
     return 'LIST';
   }
 
+  // 4. Heuristic text & headings density analysis
+  if (rows.length > 0) {
+    let headingCount = 0;
+    let totalCharCount = 0;
+    let totalCellCount = 0;
+
+    for (const r of rows) {
+      if (r.isHeading) {
+        headingCount++;
+      }
+      for (const val of r.values) {
+        if (val) {
+          totalCharCount += val.length;
+          totalCellCount++;
+        }
+      }
+    }
+
+    const headingRatio = headingCount / rows.length;
+    const avgCellLength = totalCellCount > 0 ? totalCharCount / totalCellCount : 0;
+
+    // A high ratio of section heading cells or long prose columns indicates a GUIDE/FAQ style sheet
+    if (headingRatio > 0.15 || avgCellLength > 120) {
+      return 'GUIDE';
+    }
+  }
+
+  // Default to standard tabular data format
   return 'TABLE';
 }
 
@@ -150,7 +174,7 @@ export async function parseExcel(filePath: string, originalFilename: string): Pr
       }
     }
 
-    const sheetType = classifySheet(sheetName, headers);
+    const sheetType = classifySheet(sheetName, headers, parsedRows);
 
     sheets.push({
       sheetName,
