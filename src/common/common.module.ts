@@ -10,6 +10,13 @@ import { RedisModule } from './redis/redis.module';
 import { NotificationService } from './notification/notification.service';
 import { TelegramModule } from '../telegram/telegram.module';
 
+// New dynamic communication strategy providers and registry
+import { TelegramProvider } from './notification/providers/telegram.provider';
+import { DiscordProvider } from './notification/providers/discord.provider';
+import { WhatsappProvider } from './notification/providers/whatsapp.provider';
+import { WebProvider } from './notification/providers/web.provider';
+import { CommunicationRegistryService } from './notification/communication-registry.service';
+
 @Global()
 @Module({
   imports: [
@@ -25,6 +32,11 @@ import { TelegramModule } from '../telegram/telegram.module';
     QdrantService,
     PromptBuilderService,
     NotificationService,
+    TelegramProvider,
+    DiscordProvider,
+    WhatsappProvider,
+    WebProvider,
+    CommunicationRegistryService,
   ],
   exports: [
     RedisModule,
@@ -36,6 +48,7 @@ import { TelegramModule } from '../telegram/telegram.module';
     QdrantService,
     PromptBuilderService,
     NotificationService,
+    CommunicationRegistryService,
   ],
 })
 export class CommonModule {}

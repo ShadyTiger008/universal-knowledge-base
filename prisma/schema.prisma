@@ -97,3 +97,16 @@ model UploadJob {
 
   @@map("upload_jobs")
 }
+
+model BotConfig {
+  id        String   @id @default(uuid())
+  platform  Platform @unique
+  botId     String?  // Bot username/ID (e.g. "@MyKnowledgeAssistantBot")
+  botName   String?  // Friendly name
+  token     String   // API key / token
+  isActive  Boolean  @default(true)
+  metadata  Json?    // Custom parameters (e.g. webhooks, URLs, custom channels)
+  updatedAt DateTime @updatedAt
+
+  @@map("bot_configs")
+}
