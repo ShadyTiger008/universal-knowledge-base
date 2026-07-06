@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { Platform, MessageRole } from '@prisma/client';
+import { Platform } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { CommunicationRegistryService } from '../common/notification/communication-registry.service';
@@ -108,46 +108,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Created new Telegram user record for "${fullName}" (UserID: ${user.id})`);
       }
 
-      // 3. Resolve active conversation
-      let conversation = await this.prisma.conversation.findFirst({
-        where: { userId: user.id },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      if (!conversation) {
-        conversation = await this.prisma.conversation.create({
-          data: {
-            userId: user.id,
-          },
-        });
-      }
-
-      // 4. Log the user's message
-      await this.prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: MessageRole.USER,
-          content: text,
-        },
-      });
-
-      // 5. Query the RAG pipeline
+      // 3. Query the RAG pipeline (this will log both the user question and the assistant response in the DB conversation)
       const answerResult = await this.chatService.query({
         question: text,
         userId: user.id,
       });
 
-      // 6. Log the assistant's reply
-      await this.prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: MessageRole.ASSISTANT,
-          content: answerResult.answer,
-        },
-      });
+      const replyText = answerResult?.llm?.answer || "I don't have this information in the uploaded documents.";
 
-      // 7. Dispatch response to the Telegram chat
-      await this.communicationRegistry.sendMessage(Platform.TELEGRAM, chatId, answerResult.answer);
+      // 4. Dispatch response to the Telegram chat
+      await this.communicationRegistry.sendMessage(Platform.TELEGRAM, chatId, replyText);
 
     } catch (err) {
       this.logger.error(`Error processing Telegram query: ${err.message}`);
