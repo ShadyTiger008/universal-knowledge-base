@@ -61,14 +61,30 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     if (this.isMockMode()) {
       return this.generateMockVector(text);
     }
-    return this.runWithRetry(() => this.client.embedQuery(text));
+    return this.runWithRetry(async () => {
+      const result = await this.client.embedQuery(text);
+      if (!result || result.length === 0) {
+        throw new Error(
+          '[GoogleGenerativeAI Error]: 429 Too Many Requests. Quota exceeded or rate limit hit. Empty vector received.'
+        );
+      }
+      return result;
+    });
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {
     if (this.isMockMode()) {
       return texts.map(text => this.generateMockVector(text));
     }
-    return this.runWithRetry(() => this.client.embedDocuments(texts));
+    return this.runWithRetry(async () => {
+      const results = await this.client.embedDocuments(texts);
+      if (results.some(vector => !vector || vector.length === 0)) {
+        throw new Error(
+          '[GoogleGenerativeAI Error]: 429 Too Many Requests. Quota exceeded or rate limit hit. Empty vectors received.'
+        );
+      }
+      return results;
+    });
   }
 }
 

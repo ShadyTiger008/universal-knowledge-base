@@ -16,10 +16,9 @@ export class EmbeddingService {
 
   async embed(chunks: ChunkResult[], documentName: string): Promise<EmbeddedChunk[]> {
     const totalChunks = chunks.length;
-    const times: number[] = [];
 
     console.log('======================================================');
-    console.log('[EmbeddingService] Starting embedding...');
+    console.log('[EmbeddingService] Starting batch embedding...');
     console.log('======================================================');
     console.log('');
     console.log('Document:');
@@ -37,41 +36,15 @@ export class EmbeddingService {
     console.log('------------------------------------------------------');
     console.log('');
 
-    const embedded: EmbeddedChunk[] = [];
+    const start = Date.now();
+    const texts = chunks.map(chunk => chunk.content);
+    const vectors = await this.provider.embedBatch(texts);
+    const totalTime = Date.now() - start;
 
-    for (let i = 0; i < totalChunks; i++) {
-      const chunk = chunks[i];
-      const start = Date.now();
-
-      console.log(`Embedding chunk ${i + 1}/${totalChunks}`);
-      console.log('');
-      console.log('Tokens:');
-      console.log(chunk.tokenCount);
-      console.log('');
-
-      const vector = await this.provider.embed(chunk.content);
-
-      const elapsed = Date.now() - start;
-      times.push(elapsed);
-
-      console.log('Vector received.');
-      console.log('');
-      console.log('Dimensions:');
-      console.log(vector.length);
-      console.log('');
-      console.log('Time:');
-      console.log(`${elapsed}ms`);
-      console.log('');
-      console.log('------------------------------------------------------');
-      console.log('');
-
-      embedded.push({ ...chunk, embedding: vector });
-    }
-
-    const avgTime = times.length > 0
-      ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
-      : 0;
-    const totalTime = times.reduce((a, b) => a + b, 0);
+    const embedded: EmbeddedChunk[] = chunks.map((chunk, i) => ({
+      ...chunk,
+      embedding: vectors[i],
+    }));
 
     console.log('=========================================');
     console.log('');
@@ -83,9 +56,6 @@ export class EmbeddingService {
     console.log('Vectors:');
     console.log(embedded.length);
     console.log('');
-    console.log('Average time:');
-    console.log(`${avgTime}ms`);
-    console.log('');
     console.log('Total time:');
     console.log(`${(totalTime / 1000).toFixed(1)} seconds`);
     console.log('');
@@ -94,3 +64,4 @@ export class EmbeddingService {
     return embedded;
   }
 }
+
