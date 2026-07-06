@@ -1,8 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { ParserService } from '../common/parsers/parser.service';
 import { ChunkingService } from '../common/chunking/chunking.service';
-import { EmbeddingService } from '../common/embedding/embedding.service';
+import { EmbeddingService, EmbeddedChunk } from '../common/embedding/embedding.service';
+import { QdrantService } from '../common/qdrant/qdrant.service';
 import { DocumentStatus } from '@prisma/client';
 import { promises as fs } from 'fs';
 
@@ -13,6 +15,7 @@ export class DocumentsService {
     private readonly parserService: ParserService,
     private readonly chunkingService: ChunkingService,
     private readonly embeddingService: EmbeddingService,
+    private readonly qdrantService: QdrantService,
   ) {}
 
   async upload(file: Express.Multer.File, userId: string) {
@@ -137,6 +140,39 @@ export class DocumentsService {
       );
       console.log('[DocumentService] [STAGE 4] Embedding finished. Vectors:', embeddedChunks.length);
       console.log('[DocumentService] [STAGE 4] First vector sample (first 5 dims):', embeddedChunks[0]?.embedding?.slice(0, 5));
+
+      // -------------------------------------------------------------
+      // STAGE 4.5: VECTOR STORAGE (QDRANT)
+      // -------------------------------------------------------------
+      console.log('[DocumentService] [STAGE 4.5] Saving embedded vectors to Qdrant...');
+      const points = embeddedChunks.map((chunk: EmbeddedChunk) => {
+        const meta = chunk.metadata as Record<string, unknown> | undefined;
+        
+        // Generate a deterministic UUID from the raw chunk string ID to satisfy Qdrant ID requirements
+        const rawId = `chunk_${document.id}_${chunk.chunkIndex}`;
+        const hash = createHash('md5').update(rawId).digest('hex');
+        const deterministicUuid = `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
+
+        return {
+          id: deterministicUuid,
+          vector: chunk.embedding,
+          payload: {
+            text: chunk.content,
+            userId,
+            documentId: document.id,
+            documentName: file.originalname,
+            chunkIndex: chunk.chunkIndex,
+            sourceType: (meta?.sourceType as string) ?? 'unknown',
+            sheetName: (meta?.sheetName as string) ?? null,
+            sheetType: (meta?.sheetType as string) ?? null,
+            rowNumber: (meta?.rowNumber as number) ?? null,
+            section: (meta?.section as string) ?? null,
+            uploadedAt: new Date().toISOString(),
+          },
+        };
+      });
+      await this.qdrantService.upsertPoints(points);
+      console.log('[DocumentService] [STAGE 4.5] Vectors saved to Qdrant.');
 
       // -------------------------------------------------------------
       // STAGE 5: PIPELINE FINALIZATION & SAVING METADATA (READY STATUS)
