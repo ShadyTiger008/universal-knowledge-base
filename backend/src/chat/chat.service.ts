@@ -10,6 +10,12 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { MessageRole } from '@prisma/client';
 import { createHash } from 'crypto';
 
+const FAST_RULES = new Set([
+  'hi', 'hello', 'hey', 'good morning', 'good night', 'good afternoon', 
+  'how are you', 'thank you', 'thanks', 'welcome', 'bye', 'goodbye',
+  'hi there', 'hello there', 'whats up', 'whatup', 'help'
+]);
+
 @Injectable()
 export class ChatService {
   private readonly llm: ChatGoogleGenerativeAI;
@@ -73,6 +79,124 @@ export class ChatService {
         },
       });
       console.log(`[ChatService] [STEP 0] User message saved. Conversation ID: ${conversation.id}\n`);
+    }
+
+    // -----------------------------------------------------------
+    // ROUTING LAYER: Classify the user query (GENERAL_CHAT vs RAG)
+    // -----------------------------------------------------------
+    const route = await this.routeQuery(question);
+
+    if (route === 'GENERAL_CHAT') {
+      console.log('[ChatService] Routing to GENERAL_CHAT path...');
+      
+      const responseCacheKey = this.getCacheKey(
+        'chat:general',
+        `${question}:${userId || 'anon'}`
+      );
+
+      try {
+        const cachedResponseStr = await this.redisService.get(responseCacheKey);
+        if (cachedResponseStr) {
+          this.logger.log(`General Chat Response CACHE HIT for key: ${responseCacheKey}`);
+          const cachedResponse = JSON.parse(cachedResponseStr);
+
+          if (userId) {
+            console.log('[ChatService] Persisting cached general reply to conversation history...');
+            const conversation = await this.getOrCreateConversation(userId);
+            await this.prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                role: MessageRole.ASSISTANT,
+                content: cachedResponse.llm.answer,
+              },
+            });
+          }
+
+          console.log('===============================================================');
+          console.log('[ChatService] >>> GENERAL CHAT PIPELINE COMPLETED (VIA CACHE) <<<');
+          console.log('===============================================================');
+          return cachedResponse;
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to read general response cache: ${err.message}`);
+      }
+
+      this.logger.log(`General Chat Response CACHE MISS for key: ${responseCacheKey}`);
+
+      let answer = '';
+      let shouldCacheGeneral = true;
+
+      try {
+        if (process.env.USE_MOCK_LLM === 'true') {
+          const normalized = question.toLowerCase().trim();
+          if (normalized.includes('hello') || normalized.includes('hi') || normalized.includes('hey')) {
+            answer = 'Hello! I am your AI assistant. How can I help you today?';
+          } else if (normalized.includes('thank')) {
+            answer = 'You are very welcome! Let me know if you need anything else.';
+          } else if (normalized.includes('who are you') || normalized.includes('your name')) {
+            answer = 'I am the Universal Knowledge Assistant. I can help you search and analyze your uploaded documents.';
+          } else {
+            answer = `[Mock General Response]: Thank you for asking. Regarding "${question}", let me know how I can assist you with your files!`;
+          }
+          console.log(`[ChatService] Mock General LLM answered in 0ms`);
+        } else {
+          const generalPrompt = `You are a helpful AI assistant. Answer the user's question professionally, clearly, and concisely.\n\nUser Question: "${question}"`;
+          const response = await this.runWithRetry(async () => {
+            return await this.llm.invoke(generalPrompt);
+          });
+          answer = String(response.content).trim();
+          console.log(`[ChatService] General LLM answered.`);
+        }
+      } catch (error) {
+        console.error('[ChatService] General LLM invocation failed:', error);
+        shouldCacheGeneral = false;
+        answer = "I'm sorry, I encountered a temporary issue generating a response. Please try again in a few moments.";
+      }
+
+      if (userId) {
+        console.log('[ChatService] Persisting general reply to conversation history...');
+        const conversation = await this.getOrCreateConversation(userId);
+        await this.prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            role: MessageRole.ASSISTANT,
+            content: answer,
+          },
+        });
+      }
+
+      const responsePayload = {
+        input: { question, userId, topK: 0 },
+        llm: {
+          answer,
+          prompt: 'General LLM Direct Invocation',
+          sources: [],
+        },
+        retrieval: {
+          message: 'General conversation query; retrieval skipped.',
+          thresholdApplied: 0,
+          rawResultsCount: 0,
+          skippedResultsCount: 0,
+          embedTimeMs: 0,
+          searchTimeMs: 0,
+          totalTimeMs: 0,
+          resultsCount: 0,
+          results: [],
+        },
+      };
+
+      if (shouldCacheGeneral) {
+        try {
+          await this.redisService.set(responseCacheKey, JSON.stringify(responsePayload), 7200);
+        } catch (err) {
+          this.logger.warn(`Failed to write general response cache: ${err.message}`);
+        }
+      }
+
+      console.log('===============================================================');
+      console.log('[ChatService] >>> GENERAL CHAT PIPELINE COMPLETED <<<');
+      console.log('===============================================================');
+      return responsePayload;
     }
 
     // -----------------------------------------------------------
@@ -406,6 +530,59 @@ ${bullets}`;
       }
       throw error;
     }
+  }
+
+  async routeQuery(question: string): Promise<'GENERAL_CHAT' | 'RAG' | 'TOOL'> {
+    // 1. Fast Rule Engine Check
+    const normalized = question
+      .toLowerCase()
+      .trim()
+      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '');
+    
+    if (FAST_RULES.has(normalized)) {
+      this.logger.log(`[ChatService] Fast-rule matched for greeting/smalltalk: "${normalized}". Routing to GENERAL_CHAT.`);
+      return 'GENERAL_CHAT';
+    }
+
+    // If mock mode is active, check if the question sounds like a general greeting or RAG lookup
+    if (process.env.USE_MOCK_LLM === 'true') {
+      const isGeneral = /^(who are you|what is your name|how's it going|tell me a joke|explain|hello|hi|what is)/i.test(normalized) && 
+                        !/(charge|fine|star|fee|speed|violation|parking|permit|code|rule|document|file|sheet|read)/i.test(normalized);
+      return isGeneral ? 'GENERAL_CHAT' : 'RAG';
+    }
+
+    // 2. LLM-based Router
+    const routerPrompt = `You are an AI Query Router. Analyze the user's input and classify it into one of these routes:
+1. GENERAL_CHAT: Greeting, smalltalk, general knowledge, questions about you (e.g. who are you), or generic chatter not requiring document search.
+2. RAG: Requests for facts, rules, codes, pricing, details, policies, summaries, or lookup that requires searching the user's uploaded files.
+3. TOOL: Request for math calculations or external tool operations.
+
+Response format MUST be a valid JSON object matching this schema:
+{
+  "route": "GENERAL_CHAT" | "RAG" | "TOOL"
+}
+Do not output any other text, markdown formatting, or explanation.
+
+User Input: "${question}"`;
+
+    try {
+      const response = await this.runWithRetry(async () => {
+        return await this.llm.invoke(routerPrompt);
+      }, 2, 1000);
+
+      const content = String(response.content).trim();
+      const cleaned = content.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+      const parsed = JSON.parse(cleaned) as { route: string };
+      
+      if (parsed.route === 'GENERAL_CHAT' || parsed.route === 'RAG' || parsed.route === 'TOOL') {
+        this.logger.log(`[ChatService] Router LLM classified query as: ${parsed.route}`);
+        return parsed.route;
+      }
+    } catch (err) {
+      this.logger.warn(`[ChatService] Router LLM failed or returned invalid JSON: ${err.message}. Defaulting to RAG.`);
+    }
+
+    return 'RAG';
   }
 
   private async getOrCreateConversation(userId: string) {
