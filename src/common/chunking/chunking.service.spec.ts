@@ -291,10 +291,10 @@ describe('ChunkingService', () => {
   });
 
   // ---------------------------------------------------------------
-  // STAR NORMALIZATION (Fix #4)
+  // UNIVERSAL EMOJI NORMALIZATION (Fix #4)
   // ---------------------------------------------------------------
 
-  it('should normalize star emoji ratings to Severity: N', async () => {
+  it('should normalize repeated star emoji (2+) to Rating: N, strip single stars', async () => {
     const parsedData: DocumentContent = {
       type: 'csv',
       workbookName: 'ratings.csv',
@@ -312,9 +312,77 @@ describe('ChunkingService', () => {
 
     const result = await service.chunk('doc-1', parsedData);
 
-    // Check star normalization occurs in content
-    expect(result.chunks[0].content).toContain('Severity: 3');
-    expect(result.chunks[1].content).toContain('Severity: 1');
+    // 3 stars → rating
+    expect(result.chunks[0].content).toContain('Rating: 3');
+    // Single star is ambiguous (could be rating or incidental), so it's stripped
+    expect(result.chunks[1].content).not.toContain('Rating:');
+    expect(result.chunks[1].content).toContain('Petty Theft');
+  });
+
+  it('should normalize any repeated emoji as a rating (hearts, symbols)', async () => {
+    const parsedData: DocumentContent = {
+      type: 'csv',
+      workbookName: 'ratings.csv',
+      sheets: [{
+        sheetName: 'Sheet1',
+        headers: ['Item', 'Score'],
+        rows: [
+          { rowNumber: 1, values: ['Service', '❤❤❤❤❤'], headers: ['Item', 'Score'], isHeading: false },
+          { rowNumber: 2, values: ['Quality', '★★★★'], headers: ['Item', 'Score'], isHeading: false },
+        ],
+        sheetType: 'TABLE',
+      }],
+      metadata: { documentType: 'csv', originalFilename: 'ratings.csv' },
+    };
+
+    const result = await service.chunk('doc-1', parsedData);
+
+    expect(result.chunks[0].content).toContain('Rating: 5');
+    expect(result.chunks[1].content).toContain('Rating: 4');
+  });
+
+  it('should strip incidental emojis from text content', async () => {
+    const parsedData: DocumentContent = {
+      type: 'csv',
+      workbookName: 'data.csv',
+      sheets: [{
+        sheetName: 'Sheet1',
+        headers: ['Note'],
+        rows: [
+          { rowNumber: 1, values: ['Important ✅'], headers: ['Note'], isHeading: false },
+          { rowNumber: 2, values: ['⚠ Warning'], headers: ['Note'], isHeading: false },
+        ],
+        sheetType: 'TABLE',
+      }],
+      metadata: { documentType: 'csv', originalFilename: 'data.csv' },
+    };
+
+    const result = await service.chunk('doc-1', parsedData);
+
+    expect(result.chunks[0].content).not.toContain('✅');
+    expect(result.chunks[1].content).not.toContain('⚠');
+    expect(result.chunks[0].content).toContain('Important');
+    expect(result.chunks[1].content).toContain('Warning');
+  });
+
+  it('should normalize emoji with trailing text (e.g. "⭐⭐⭐ Very severe")', async () => {
+    const parsedData: DocumentContent = {
+      type: 'csv',
+      workbookName: 'ratings.csv',
+      sheets: [{
+        sheetName: 'Sheet1',
+        headers: ['Offense', 'Rating'],
+        rows: [
+          { rowNumber: 1, values: ['Arson', '⭐⭐ Severe fire damage'], headers: ['Offense', 'Rating'], isHeading: false },
+        ],
+        sheetType: 'TABLE',
+      }],
+      metadata: { documentType: 'csv', originalFilename: 'ratings.csv' },
+    };
+
+    const result = await service.chunk('doc-1', parsedData);
+
+    expect(result.chunks[0].content).toContain('Rating: 2 - Severe fire damage');
   });
 
   // ---------------------------------------------------------------

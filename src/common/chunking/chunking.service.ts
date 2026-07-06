@@ -522,12 +522,12 @@ export class ChunkingService {
   }
 
   /**
-   * Normalize a cell value: money formatting and star rating conversion.
+   * Normalize a cell value: money formatting and emoji normalization.
    */
   private normalizeCellValue(value: string): string {
     let result = value.trim();
     result = this.normalizeMoney(result);
-    result = this.normalizeStars(result);
+    result = this.normalizeEmojis(result);
     return result;
   }
 
@@ -554,18 +554,40 @@ export class ChunkingService {
   }
 
   /**
-   * Convert star emoji / star characters to "Severity: N".
+   * Universal emoji normalizer.
+   *
+   * - If a single emoji appears 2+ times (e.g. ⭐⭐⭐, ❤❤❤, ★★★★),
+   *   it is treated as a rating scale → "Rating: N (optional text)".
+   *   This works for any emoji or decorative symbol.
+   * - Otherwise strips incidental emoji / decorative symbols from the text
+   *   so embedding models receive clean semantic content.
+   *
+   * Uses Unicode property \p{Extended_Pictographic} for modern emoji plus
+   * the U+2600-U+27BF range to cover text-default symbols like ★, ☆, ✓, ✘, ☑.
    */
-  private normalizeStars(value: string): string {
-    const starPattern = /[\u2605\u2B50\u2728\u2606⭐🌟\u{1F31F}\u{1F320}]/gu;
-    const stars = value.match(starPattern);
-    if (stars && stars.length > 0) {
-      const withoutStars = value.replace(starPattern, '').trim();
-      if (withoutStars.length === 0 || withoutStars.length < value.length / 2) {
-        return `Severity: ${stars.length}`;
+  private normalizeEmojis(value: string): string {
+    const emojiPattern = /[\p{Extended_Pictographic}\u2600-\u27BF]/gu;
+    const matches = [...value.matchAll(emojiPattern)];
+    if (matches.length === 0) return value;
+
+    const counts = new Map<string, number>();
+    for (const m of matches) {
+      const char = m[0];
+      counts.set(char, (counts.get(char) || 0) + 1);
+    }
+
+    const nonEmoji = value.replace(emojiPattern, '').trim();
+
+    // Single emoji repeated 2+ times → rating pattern
+    if (counts.size === 1) {
+      const count = [...counts.values()][0];
+      if (count >= 2) {
+        return nonEmoji ? `Rating: ${count} - ${nonEmoji}` : `Rating: ${count}`;
       }
     }
-    return value;
+
+    // Mixed or single incidental emoji → just strip
+    return nonEmoji || '';
   }
 
   // ---------------------------------------------------------------
