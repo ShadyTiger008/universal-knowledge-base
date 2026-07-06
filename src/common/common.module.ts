@@ -20,6 +20,7 @@ import { QdrantService } from './qdrant/qdrant.service';
     ParserService,
     ChunkingService,
     TextCleanerService,
+    GeminiEmbeddingProvider,
     EmbeddingService,
     QdrantService,
   ],

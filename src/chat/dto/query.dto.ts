@@ -10,7 +10,7 @@ export class QueryDto {
 
   @ApiPropertyOptional({ description: 'User ID making the query' })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   userId?: string;
 
   @ApiPropertyOptional({ description: 'Scope search to a specific document' })

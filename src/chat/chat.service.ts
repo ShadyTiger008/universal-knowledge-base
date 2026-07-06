@@ -2,6 +2,8 @@ import { Injectable, Inject } from '@nestjs/common';
 import { EmbeddingProvider } from '../common/embedding/embedding-provider.interface';
 import { GeminiEmbeddingProvider } from '../common/embedding/providers/gemini-embedding.provider';
 import { QdrantService } from '../common/qdrant/qdrant.service';
+import { PrismaService } from '../database/prisma.service';
+import { MessageRole } from '@prisma/client';
 
 @Injectable()
 export class ChatService {
@@ -9,6 +11,7 @@ export class ChatService {
     @Inject(GeminiEmbeddingProvider)
     private readonly embeddingProvider: EmbeddingProvider,
     private readonly qdrantService: QdrantService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async query(params: {
@@ -30,6 +33,26 @@ export class ChatService {
     console.log('Filters:');
     console.log({ userId, documentId, topK });
     console.log('');
+
+    // -----------------------------------------------------------
+    // STEP 0: Persist the user's question to chat history
+    // -----------------------------------------------------------
+    if (userId) {
+      console.log('[ChatService] [STEP 0] Persisting user question to conversation history...');
+
+      const conversation = await this.getOrCreateConversation(userId);
+
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: MessageRole.USER,
+          content: question,
+        },
+      });
+
+      console.log(`[ChatService] [STEP 0] User message saved. Conversation ID: ${conversation.id}`);
+      console.log('');
+    }
 
     // -----------------------------------------------------------
     // STEP 1: Embed the question using the same model as ingestion
@@ -60,6 +83,7 @@ export class ChatService {
     console.log('');
 
     const filter: Record<string, unknown> = {};
+    if (userId) filter.userId = userId;
     if (documentId) filter.documentId = documentId;
 
     const searchStart = Date.now();
@@ -89,9 +113,35 @@ export class ChatService {
     }
     console.log('------------------------------------------------------');
     console.log('');
+
+    // -----------------------------------------------------------
+    // STEP 4: Persist the retrieval results to chat history
+    // -----------------------------------------------------------
+    if (userId) {
+      console.log('[ChatService] [STEP 4] Persisting retrieval results to conversation history...');
+
+      const conversation = await this.getOrCreateConversation(userId);
+      const assistantContent = this.formatRetrievalResponse(question, results);
+
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: MessageRole.ASSISTANT,
+          content: assistantContent,
+        },
+      });
+
+      console.log(`[ChatService] [STEP 4] Assistant response saved to conversation ${conversation.id}`);
+      console.log('');
+    }
+
+    // -----------------------------------------------------------
+    // SUMMARY
+    // -----------------------------------------------------------
     console.log('===============================================================');
     console.log('[ChatService] >>> RETRIEVAL PIPELINE COMPLETED <<<');
     console.log('===============================================================');
+    console.log('');
 
     return {
       input: { question, userId, documentId, topK },
@@ -106,5 +156,55 @@ export class ChatService {
         })),
       },
     };
+  }
+
+  private async getOrCreateConversation(userId: string) {
+    const existing = await this.prisma.conversation.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) {
+      console.log(`[ChatService] Reusing existing conversation: ${existing.id}`);
+      return existing;
+    }
+
+    const created = await this.prisma.conversation.create({
+      data: { userId },
+    });
+
+    console.log(`[ChatService] Created new conversation: ${created.id}`);
+    return created;
+  }
+
+  private formatRetrievalResponse(question: string, results: { score: number; payload: Record<string, unknown> }[]): string {
+    const lines: string[] = [
+      `Retrieved ${results.length} relevant chunk(s) for the question: "${question}"`,
+      '',
+    ];
+
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      const text = (r.payload.text as string) ?? '';
+      const source = (r.payload.documentName as string) ?? 'unknown';
+      const chunkIdx = r.payload.chunkIndex ?? '?';
+      const sourceType = (r.payload.sourceType as string) ?? '?';
+      const sheet = (r.payload.sheetName as string) ?? null;
+      const section = (r.payload.section as string) ?? null;
+      const rowNum = r.payload.rowNumber ?? null;
+
+      lines.push(`--- Chunk ${i + 1} (similarity: ${r.score.toFixed(4)}) ---`);
+      lines.push(`Source: ${source}`);
+      lines.push(`Type: ${sourceType}`);
+      if (sheet) lines.push(`Sheet: ${sheet}`);
+      if (section) lines.push(`Section: ${section}`);
+      if (rowNum != null) lines.push(`Row: ${rowNum}`);
+      lines.push(`Chunk Index: ${chunkIdx}`);
+      lines.push(`Content:`);
+      lines.push(text);
+      lines.push('');
+    }
+
+    return lines.join('\n');
   }
 }
