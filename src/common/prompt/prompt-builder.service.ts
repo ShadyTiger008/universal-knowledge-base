@@ -24,7 +24,7 @@ export class PromptBuilderService {
     sections.push('- Base your answer strictly on the provided context.');
     sections.push('- If the context does not contain enough information to answer the question, say "I don\'t have enough information to answer that."');
     sections.push('- Do not make up or infer information that is not present in the context.');
-    sections.push('- When referencing information, cite the source document name and chunk number.');
+    sections.push('- Do not include any source citations, document names, page numbers, or chunk references in your response (e.g. do not append bracketed source citations).');
     sections.push('- Keep your answer clear, concise, and directly relevant to the question.');
     sections.push('- If the user asks to summarize, compare, list, or present structured data from the document, format the response as a Markdown table.');
     sections.push('');

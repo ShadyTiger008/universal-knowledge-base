@@ -210,10 +210,26 @@ export class ChatService {
     console.log('===============================================================');
     console.log('');
 
+    const sources = results.map(r => ({
+      documentId: (r.payload.documentId as string) ?? undefined,
+      documentName: (r.payload.documentName as string) ?? 'unknown',
+      chunkIndex: (r.payload.chunkIndex as number) ?? 0,
+      sourceType: (r.payload.sourceType as string) ?? 'text',
+      sheetName: (r.payload.sheetName as string) ?? undefined,
+      rowNumber: (r.payload.rowNumber as number) ?? undefined,
+    }));
+
+    const uniqueSources = sources.filter((val, idx, self) => 
+      self.findIndex(s => s.documentName === val.documentName && s.chunkIndex === val.chunkIndex) === idx
+    );
+
     return {
       input: { question, userId, documentId, topK },
-      answer,
-      prompt,
+      llm: {
+        answer,
+        prompt,
+        sources: uniqueSources,
+      },
       retrieval: {
         message: assistantContent,
         thresholdApplied: threshold,
