@@ -247,9 +247,15 @@ SET token = EXCLUDED.token, "botId" = EXCLUDED."botId", "botName" = EXCLUDED."bo
 Whenever updates are polled or messages are dispatched, the application queries this database record first. You can modify the active bot token directly in PostgreSQL at any time to switch active bots on the fly!
 
 ### 3. Telegram Interaction Workflow
-When a user messages the bot:
-1. **User Auto-Creation**: If the Telegram User's chat ID is not found in PostgreSQL, the system automatically registers them.
-2. **Contextual History Retention**: The query is logged in the `messages` table under a persistent `Conversation` session linked to the user.
-3. **Typing Indicator**: The bot triggers a visual "typing" feedback status immediately.
-4. **LLM Query & Reply**: The pipeline retrieves document vectors, generates a Gemini answer, records the assistant message in the DB, and dispatches the response.
+When a user interacts with the bot:
+* **Text Queries**:
+  1. **User Auto-Creation**: If the Telegram User's chat ID is not found in PostgreSQL, the system automatically registers them.
+  2. **Typing Indicator**: The bot triggers a visual "typing" feedback status immediately.
+  3. **RAG pipeline Query**: The query is run through the vector search and Gemini LLM. Both the question and reply are logged in the database conversation history.
+  4. **Reply**: The bot replies directly with the context-aware answer.
+* **Document Uploads**:
+  1. **Mime Type Validation**: Supports PDFs, Excel, CSVs, Word, Markdown, and Text files.
+  2. **Immediate Feedback**: Replies with: *"We are processing your file "[filename]". It will be ready within one or two minutes."*
+  3. **File Download & Queueing**: Downloads the file via Telegram's API, writes it to the local `/public/uploads/temp` directory, and pushes it onto the BullMQ background ingestion worker queue.
+  4. **Completion Callback Notification**: Once the background processor completes (or fails), the `NotificationService` calls the `TelegramProvider` to notify the user in the Telegram chat that the document is successfully ingested and ready for query!
 
