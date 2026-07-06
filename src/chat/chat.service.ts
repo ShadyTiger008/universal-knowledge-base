@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EmbeddingProvider } from '../common/embedding/embedding-provider.interface';
 import { GeminiEmbeddingProvider } from '../common/embedding/providers/gemini-embedding.provider';
 import { QdrantService } from '../common/qdrant/qdrant.service';
@@ -21,9 +22,14 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly redisService: RedisService,
+    private readonly configService: ConfigService,
   ) {
+    const apiKey = this.configService.get<string>('GOOGLE_API_KEY')?.replace(/"/g, '');
+    const model = this.configService.get<string>('GEMINI_LLM_MODEL') || 'gemini-flash-latest';
+
     this.llm = new ChatGoogleGenerativeAI({
-      model: process.env.GEMINI_LLM_MODEL || 'gemini-flash-latest',
+      model,
+      apiKey,
     });
   }
 
