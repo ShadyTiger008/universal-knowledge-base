@@ -118,6 +118,8 @@ export class ChatService {
     console.log('------------------------------------------------------');
     console.log('');
 
+    const assistantContent = this.formatRetrievalResponse(question, results);
+
     // -----------------------------------------------------------
     // STEP 4: Persist the retrieval results to chat history
     // -----------------------------------------------------------
@@ -125,7 +127,6 @@ export class ChatService {
       console.log('[ChatService] [STEP 4] Persisting retrieval results to conversation history...');
 
       const conversation = await this.getOrCreateConversation(userId);
-      const assistantContent = this.formatRetrievalResponse(question, results);
 
       await this.prisma.message.create({
         data: {
@@ -150,6 +151,10 @@ export class ChatService {
     return {
       input: { question, userId, documentId, topK },
       retrieval: {
+        message: assistantContent,
+        thresholdApplied: threshold,
+        rawResultsCount: rawResults.length,
+        skippedResultsCount: rawResults.length - results.length,
         embedTimeMs: embedTime,
         searchTimeMs: searchTime,
         totalTimeMs: embedTime + searchTime,

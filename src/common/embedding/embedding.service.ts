@@ -38,7 +38,18 @@ export class EmbeddingService {
 
     const start = Date.now();
     const texts = chunks.map(chunk => chunk.content);
-    const vectors = await this.provider.embedBatch(texts);
+    
+    // Batch processing to handle large documents reliably without hitting payload/API limits
+    const batchSize = parseInt(process.env.EMBEDDING_BATCH_SIZE || '100', 10);
+    const vectors: number[][] = [];
+    
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batch = texts.slice(i, i + batchSize);
+      console.log(`[EmbeddingService] Embedding batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)} (size: ${batch.length})...`);
+      const batchVectors = await this.provider.embedBatch(batch);
+      vectors.push(...batchVectors);
+    }
+    
     const totalTime = Date.now() - start;
 
     const embedded: EmbeddedChunk[] = chunks.map((chunk, i) => ({
