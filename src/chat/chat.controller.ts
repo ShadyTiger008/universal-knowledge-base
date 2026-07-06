@@ -10,11 +10,13 @@ export class ChatController {
 
   @Post('query')
   async query(@Body() dto: QueryDto) {
-    console.log('[ChatController] /query called with:', dto);
+    console.log('[ChatController] /query called:', JSON.stringify(dto, null, 2));
 
-    return {
-      input: dto,
-      message: 'Query received successfully. Processing not yet implemented.',
-    };
+    return this.chatService.query({
+      question: dto.question,
+      userId: dto.userId,
+      documentId: dto.documentId,
+      topK: dto.topK,
+    });
   }
 }

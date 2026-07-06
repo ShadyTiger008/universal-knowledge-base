@@ -64,6 +64,44 @@ export class QdrantService implements OnModuleInit {
     }
   }
 
+  async search(params: {
+    vector: number[];
+    limit?: number;
+    filter?: Record<string, unknown>;
+  }): Promise<{ id: string; score: number; payload: Record<string, unknown> }[]> {
+    if (!this.client || !this.ready) {
+      this.logger.warn('QdrantService is not ready. Skipping search.');
+      return [];
+    }
+
+    const { vector, limit = 10, filter } = params;
+
+    try {
+      const qdrantFilter = filter
+        ? { must: Object.entries(filter).map(([key, value]) => ({ key, match: { value } })) }
+        : undefined;
+
+      const results = await this.client.search(COLLECTION_NAME, {
+        vector,
+        limit,
+        filter: qdrantFilter as any,
+        with_payload: true,
+        with_vector: false,
+      });
+
+      this.logger.log(`Search returned ${results.length} results`);
+
+      return results.map(r => ({
+        id: String(r.id),
+        score: r.score ?? 0,
+        payload: (r.payload as Record<string, unknown>) ?? {},
+      }));
+    } catch (error) {
+      this.logger.error(`Failed to search: ${error.message}`);
+      throw error;
+    }
+  }
+
   async upsertPoints(points: QdrantPoint[]): Promise<void> {
     if (!this.client || !this.ready) {
       this.logger.warn('QdrantService is not ready. Skipping upsert.');
