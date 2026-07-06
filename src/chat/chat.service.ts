@@ -130,9 +130,6 @@ export class ChatService {
     const assistantContent = this.formatRetrievalResponse(question, results);
 
     // -----------------------------------------------------------
-    // STEP 4: Build the LLM prompt via PromptBuilderService
-    // -----------------------------------------------------------
-    // -----------------------------------------------------------
     // STEP 4: Build prompt and invoke LLM (or fallback if no results)
     // -----------------------------------------------------------
     let prompt: string | null = null;
@@ -157,13 +154,21 @@ export class ChatService {
       console.log('[ChatService] [STEP 5] Invoking ChatGoogleGenerativeAI to get answer...');
       const llmStart = Date.now();
 
-      if (process.env.USE_MOCK_LLM === 'true') {
-        answer = `Mock response: Based on the provided context, yes, no separate Board Resolution is required for Altiora because it is a sole proprietorship.`;
-        console.log(`[ChatService] Mock LLM answered in 0ms`);
-      } else {
-        const response = await this.llm.invoke(prompt);
-        answer = String(response.content);
-        console.log(`[ChatService] LLM answered in ${Date.now() - llmStart}ms`);
+      try {
+        if (process.env.USE_MOCK_LLM === 'true') {
+          answer = `Mock response: Based on the provided context, yes, no separate Board Resolution is required for Altiora because it is a sole proprietorship.`;
+          console.log(`[ChatService] Mock LLM answered in 0ms`);
+        } else {
+          const response = await this.runWithRetry(async () => {
+            return await this.llm.invoke(prompt!);
+          });
+          answer = String(response.content);
+          console.log(`[ChatService] LLM answered in ${Date.now() - llmStart}ms`);
+        }
+      } catch (error) {
+        console.error('[ChatService] LLM invocation failed completely:', error);
+        answer = "I'm sorry, I encountered a temporary issue generating a natural answer. Here is the relevant information found in the documents:\n\n" + 
+                 results.map((r, i) => `**Source ${i + 1} (${r.payload.documentName || 'Unknown Document'}, Chunk ${r.payload.chunkIndex ?? 0}):**\n${r.payload.text}`).join('\n\n');
       }
 
       console.log('------------------------------------------------------');
@@ -224,6 +229,31 @@ export class ChatService {
         })),
       },
     };
+  }
+
+  private async runWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelayMs = 2000): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      const errorMessage = error.message || '';
+      const isRateLimit = errorMessage.includes('429') || 
+                          errorMessage.includes('Quota exceeded') ||
+                          errorMessage.includes('Too Many Requests');
+      
+      if (isRateLimit && retries > 0) {
+        let sleepTime = initialDelayMs;
+        const match = errorMessage.match(/Please retry in (\d+(\.\d+)?)/);
+        if (match && match[1]) {
+          sleepTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000; // Add 1s buffer
+        }
+        console.warn(
+          `[ChatService] Gemini LLM Rate limit hit. Waiting ${sleepTime / 1000} seconds before retrying (Retries left: ${retries})...`
+        );
+        await new Promise(resolve => setTimeout(resolve, sleepTime));
+        return this.runWithRetry(fn, retries - 1, initialDelayMs * 2);
+      }
+      throw error;
+    }
   }
 
   private async getOrCreateConversation(userId: string) {
