@@ -238,29 +238,38 @@ export class ChatService {
           const docName = (mainChunk?.documentName as string) || 'Document';
           const textContent = (mainChunk?.text as string) || '';
           
-          const codeMatch = textContent.match(/(?:Traffic Code|Penal Code|Code)\s*:\s*([^\r\n]+)/i);
-          const crimeMatch = textContent.match(/(?:CRIME|Crime)\s*:\s*([^\r\n]+)/i);
-          const fineMatch = textContent.match(/(?:FINE|Fine)\s*:\s*([^\r\n]+)/i);
-          const starsMatch = textContent.match(/(?:Stars|Wanted Level|Level|Notes)\s*:\s*([^\r\n]+)/i);
-          const descMatch = textContent.match(/(?:Description|Notes|Preview)\s*:\s*([^\r\n]+)/i);
+          const lines = textContent
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0 && !line.startsWith('[') && !line.endsWith(']'));
+            
+          const keyValuePairs: Record<string, string> = {};
           
-          const code = codeMatch ? codeMatch[1].trim() : 'N/A';
-          const crime = crimeMatch ? crimeMatch[1].trim() : 'N/A';
-          const fine = fineMatch ? fineMatch[1].trim() : 'N/A';
-          const stars = starsMatch ? starsMatch[1].trim() : 'N/A';
-          const desc = descMatch ? descMatch[1].trim() : 'N/A';
+          for (const line of lines) {
+            const separatorIdx = line.indexOf(':');
+            if (separatorIdx > 0) {
+              const key = line.substring(0, separatorIdx).trim();
+              const val = line.substring(separatorIdx + 1).trim();
+              if (key.length > 0 && key.length < 30 && val.length > 0) {
+                keyValuePairs[key] = val;
+              }
+            }
+          }
           
-          if (crimeMatch || fineMatch || codeMatch) {
-            answer = `| Penal/Traffic Code | Crime | Fine | Stars/Notes |
-| :--- | :--- | :--- | :--- |
-| ${code} | ${crime} | ${fine} | ${stars} |
+          const keys = Object.keys(keyValuePairs);
+          if (keys.length > 0) {
+            const headers = keys.join(' | ');
+            const alignment = keys.map(() => ':---').join(' | ');
+            const rowValues = keys.map(k => keyValuePairs[k]).join(' | ');
+            const bullets = keys.map(k => `• **${k}:** ${keyValuePairs[k]}`).join('\n');
+            
+            answer = `| ${headers} |
+| ${alignment} |
+| ${rowValues} |
 
 ---
 ### 💬 Conversational Summary:
-• **Charge:** ${code} (${crime})
-• **Fine:** ${fine}
-• **Wanted Level:** ${stars}
-• **Description:** ${desc !== 'N/A' ? desc : `Violation of code ${code}.`}`;
+${bullets}`;
           } else {
             const sheetInfo = mainChunk?.sheetName ? ` (Sheet: ${mainChunk.sheetName})` : '';
             answer = `[Mock LLM Response - ${docName}${sheetInfo}]:\nBased on the retrieved context, here is the relevant excerpt:\n\n${textContent}`;
