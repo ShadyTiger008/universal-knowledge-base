@@ -126,16 +126,23 @@ export class QdrantService implements OnModuleInit {
     }
 
     try {
-      await this.client.upsert(COLLECTION_NAME, {
-        wait: true,
-        points: points.map(p => ({
-          id: p.id,
-          vector: p.vector,
-          payload: p.payload,
-        })),
-      });
+      const batchSize = parseInt(process.env.QDRANT_UPSERT_BATCH_SIZE || '100', 10);
+      
+      for (let i = 0; i < points.length; i += batchSize) {
+        const batch = points.slice(i, i + batchSize);
+        this.logger.log(`Upserting points batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(points.length / batchSize)} (size: ${batch.length}) to "${COLLECTION_NAME}"...`);
+        
+        await this.client.upsert(COLLECTION_NAME, {
+          wait: true,
+          points: batch.map(p => ({
+            id: p.id,
+            vector: p.vector,
+            payload: p.payload,
+          })),
+        });
+      }
 
-      this.logger.log(`Upserted ${points.length} points to "${COLLECTION_NAME}"`);
+      this.logger.log(`Upserted total of ${points.length} points to "${COLLECTION_NAME}"`);
     } catch (error) {
       this.logger.error(`Failed to upsert points: ${error.message}`);
       throw error;

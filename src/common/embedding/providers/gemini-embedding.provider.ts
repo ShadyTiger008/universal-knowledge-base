@@ -76,15 +76,34 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     if (this.isMockMode()) {
       return texts.map(text => this.generateMockVector(text));
     }
-    return this.runWithRetry(async () => {
-      const results = await this.client.embedDocuments(texts);
-      if (results.some(vector => !vector || vector.length === 0)) {
-        throw new Error(
-          '[GoogleGenerativeAI Error]: 429 Too Many Requests. Quota exceeded or rate limit hit. Empty vectors received.'
-        );
+    try {
+      return await this.runWithRetry(async () => {
+        const results = await this.client.embedDocuments(texts);
+        if (results.some(vector => !vector || vector.length === 0)) {
+          throw new Error('Empty vectors received.');
+        }
+        return results;
+      });
+    } catch (error) {
+      console.warn(
+        `[GeminiEmbeddingProvider] Batch embedding failed: ${error.message || error}. Falling back to individual chunk-by-chunk embedding...`
+      );
+
+      // Fallback: embed each text individually with rate-limit delays
+      const results: number[][] = [];
+      for (let i = 0; i < texts.length; i++) {
+        console.log(`[GeminiEmbeddingProvider] Embedding individual chunk ${i + 1}/${texts.length}...`);
+        const vector = await this.embed(texts[i]);
+        results.push(vector);
+
+        // Cooldown delay between individual requests to prevent rate limit spikes on the free tier
+        const individualDelay = parseInt(process.env.INDIVIDUAL_EMBEDDING_DELAY_MS || '500', 10);
+        if (individualDelay > 0 && i < texts.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, individualDelay));
+        }
       }
       return results;
-    });
+    }
   }
 }
 
