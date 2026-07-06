@@ -16,6 +16,8 @@ The repository is structured as a monorepo containing:
 
 The platform operates on two separate decoupled workflows: **Document Ingestion** (Write Path) and **Contextual Querying** (Read Path).
 
+* **Resilient Multi-Provider LLM Engine**: The contextual query path and the query router use a decoupled orchestrator (`LlmService`) implementing a priority fallback pipeline. If any provider experiences rate limits (HTTP 429), timeouts, or server errors, it retries with exponential backoff and randomized jitter before gracefully failing over (Gemini ➔ Groq ➔ OpenRouter ➔ Ollama).
+
 ```mermaid
 graph TD
     %% Write Path (Ingestion)
@@ -48,10 +50,15 @@ graph TD
     ChatService -->|5. Vector Search| VectorDB
     VectorDB -->|6. Retrieve contexts| ChatService
     ChatService -->|7. Build context prompt| PromptBuilder[PromptBuilderService]
-    ChatService -->|8. Request LLM answer| GeminiLLM[Gemini LLM]
-    ChatService -->|9. Save history| DB
-    ChatService -->|10. Cache response| Cache
-    ChatService -->|11. Return Answer| Client2
+    ChatService -->|8. Request LLM answer| LlmService[Resilient LlmService]
+    LlmService -->|Gemini (Primary)| GeminiAPI[Gemini API]
+    LlmService -->|Failover 1| GroqAPI[Groq API]
+    LlmService -->|Failover 2| OpenRouterAPI[OpenRouter API]
+    LlmService -->|Failover 3| OllamaAPI[Ollama (Local)]
+    LlmService -->|9. Selected Answer| ChatService
+    ChatService -->|10. Save history| DB
+    ChatService -->|11. Cache response| Cache
+    ChatService -->|12. Return Answer| Client2
 ```
 
 ---

@@ -6,14 +6,13 @@ import { QdrantService } from '../common/qdrant/qdrant.service';
 import { PrismaService } from '../database/prisma.service';
 import { PromptBuilderService } from '../common/prompt/prompt-builder.service';
 import { RedisService } from '../common/redis/redis.service';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { MessageRole } from '@prisma/client';
 import { createHash } from 'crypto';
 import { QueryRouterService } from './query-router.service';
+import { LlmService } from '../common/llm/llm.service';
 
 @Injectable()
 export class ChatService {
-  private readonly llm: ChatGoogleGenerativeAI;
   private readonly logger = new Logger(ChatService.name);
 
   constructor(
@@ -25,15 +24,8 @@ export class ChatService {
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
     private readonly queryRouterService: QueryRouterService,
-  ) {
-    const apiKey = this.configService.get<string>('GOOGLE_API_KEY')?.replace(/"/g, '');
-    const model = this.configService.get<string>('GEMINI_LLM_MODEL') || 'gemini-flash-latest';
-
-    this.llm = new ChatGoogleGenerativeAI({
-      model,
-      apiKey,
-    });
-  }
+    private readonly llmService: LlmService,
+  ) {}
 
   private getCacheKey(prefix: string, data: string): string {
     const hash = createHash('md5').update(data).digest('hex');
@@ -137,10 +129,8 @@ export class ChatService {
           console.log(`[ChatService] Mock General LLM answered in 0ms`);
         } else {
           const generalPrompt = `You are a helpful AI assistant. Answer the user's question professionally, clearly, and concisely.\n\nUser Question: "${question}"`;
-          const response = await this.runWithRetry(async () => {
-            return await this.llm.invoke(generalPrompt);
-          });
-          answer = String(response.content).trim();
+          const response = await this.llmService.generate(generalPrompt);
+          answer = response.content.trim();
           console.log(`[ChatService] General LLM answered.`);
         }
       } catch (error) {
@@ -396,10 +386,8 @@ ${bullets}`;
           }
           console.log(`[ChatService] Mock LLM answered dynamically in 0ms`);
         } else {
-          const response = await this.runWithRetry(async () => {
-            return await this.llm.invoke(prompt!);
-          });
-          answer = String(response.content);
+          const response = await this.llmService.generate(prompt!);
+          answer = response.content;
           console.log(`[ChatService] LLM answered in ${Date.now() - llmStart}ms`);
         }
       } catch (error) {
@@ -497,36 +485,7 @@ ${bullets}`;
     return responsePayload;
   }
 
-  private async runWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelayMs = 2000): Promise<T> {
-    try {
-      return await fn();
-    } catch (error) {
-      const errorMessage = error.message || '';
-      const isRateLimit = errorMessage.includes('429') || 
-                          errorMessage.includes('Quota exceeded') ||
-                          errorMessage.includes('Too Many Requests');
-      
-      if (isRateLimit && retries > 0) {
-        let sleepTime = initialDelayMs;
-        const match = errorMessage.match(/Please retry in (\d+(\.\d+)?)/);
-        if (match && match[1]) {
-          sleepTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000; // Add 1s buffer
-        }
-        
-        if (sleepTime > 5000) {
-          console.warn(`[ChatService] Gemini LLM Rate limit wait is too long (${sleepTime}ms), failing early.`);
-          throw new Error('AI_RATE_LIMIT_EXCEEDED');
-        }
 
-        console.warn(
-          `[ChatService] Gemini LLM Rate limit hit. Waiting ${sleepTime / 1000} seconds before retrying (Retries left: ${retries})...`
-        );
-        await new Promise(resolve => setTimeout(resolve, sleepTime));
-        return this.runWithRetry(fn, retries - 1, initialDelayMs * 2);
-      }
-      throw error;
-    }
-  }
 
 
 

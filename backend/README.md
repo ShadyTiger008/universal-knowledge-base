@@ -24,6 +24,16 @@ The backend engine is a NestJS application orchestrating document processing, ve
 * **Error Prevention**: Transient API quota/rate-limit error responses from Gemini are **not** cached in Redis.
 * **Startup Flush**: All stale `chat:response:*` keys are automatically flushed from Redis on application boot.
 
+### 4. Resilient LLM Architecture (Fault-Tolerant Failover)
+* **Unified Provider Interface**: All LLM integrations (Gemini, Groq, OpenRouter, and Ollama) are abstracted behind a unified `LlmProvider` interface, allowing the rest of the application to execute queries without caring which provider answers.
+* **Fallback Priority Chain**:
+  ```
+  Primary: Gemini ──► Fallback 1: Groq ──► Fallback 2: OpenRouter ──► Fallback 3: Ollama (Local)
+  ```
+* **Error Classification**:
+  * **Transient (Retryable)**: Network timeouts, DNS failures, HTTP 429 (Rate Limit/Quota), and HTTP 5xx (Server Error) trigger up to 3 attempts with exponential backoff and randomized jitter (to avoid concurrent stampedes).
+  * **Critical (Fail-Fast)**: HTTP 400 (Client Request Error), HTTP 401/403 (Auth/Unauthorized), and JSON syntax errors immediately bypass retries and failover to the next active provider in the chain.
+
 ---
 
 ## Environment Variables (.env)
@@ -40,8 +50,21 @@ DATABASE_URL="postgresql://postgres:password@localhost:5432/universal_knowledge_
 JWT_SECRET="your-secret-key"
 JWT_EXPIRES_IN=7d
 
-# Google Gemini API
+# Google Gemini API (Primary)
 GOOGLE_API_KEY="your-gemini-api-key"
+GEMINI_LLM_MODEL="gemini-flash-latest"
+
+# Groq (Fallback 1)
+GROQ_API_KEY="your-groq-api-key"
+GROQ_LLM_MODEL="llama-3.3-70b-versatile"
+
+# OpenRouter (Fallback 2)
+OPENROUTER_API_KEY="your-openrouter-api-key"
+OPENROUTER_LLM_MODEL="google/gemini-2.5-flash"
+
+# Ollama (Fallback 3 - Local)
+OLLAMA_HOST="http://localhost:11434"
+OLLAMA_LLM_MODEL="llama3"
 
 # Qdrant Vector DB
 QDRANT_CLUSTER_ENDPOINT="https://your-qdrant-endpoint"

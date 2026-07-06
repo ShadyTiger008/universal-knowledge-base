@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { LlmService } from '../common/llm/llm.service';
 
 export type QueryRoute = 'GENERAL_CHAT' | 'RAG' | 'TOOL';
 
@@ -12,18 +12,12 @@ const FAST_RULES = new Set([
 
 @Injectable()
 export class QueryRouterService {
-  private readonly routerLlm: ChatGoogleGenerativeAI;
   private readonly logger = new Logger(QueryRouterService.name);
 
-  constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>('GOOGLE_API_KEY')?.replace(/"/g, '');
-    const model = this.configService.get<string>('GEMINI_LLM_MODEL') || 'gemini-flash-latest';
-
-    this.routerLlm = new ChatGoogleGenerativeAI({
-      model,
-      apiKey,
-    });
-  }
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly llmService: LlmService,
+  ) {}
 
   async route(question: string): Promise<QueryRoute> {
     // 1. Fast Rule Engine Check
@@ -59,11 +53,8 @@ Do not output any other text, markdown formatting, or explanation.
 User Input: "${question}"`;
 
     try {
-      const response = await this.runWithRetry(async () => {
-        return await this.routerLlm.invoke(routerPrompt);
-      }, 2, 1000);
-
-      const content = String(response.content).trim();
+      const response = await this.llmService.generate(routerPrompt);
+      const content = response.content.trim();
       const cleaned = content.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
       const parsed = JSON.parse(cleaned) as { route: string };
 
@@ -76,33 +67,5 @@ User Input: "${question}"`;
     }
 
     return 'RAG';
-  }
-
-  private async runWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelayMs = 2000): Promise<T> {
-    try {
-      return await fn();
-    } catch (error) {
-      const errorMessage = error.message || '';
-      const isRateLimit = errorMessage.includes('429') || 
-                          errorMessage.includes('Quota exceeded') ||
-                          errorMessage.includes('Too Many Requests');
-      
-      if (isRateLimit && retries > 0) {
-        let sleepTime = initialDelayMs;
-        const match = errorMessage.match(/Please retry in (\d+(\.\d+)?)/);
-        if (match && match[1]) {
-          sleepTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
-        }
-        
-        if (sleepTime > 5000) {
-          throw new Error('AI_RATE_LIMIT_EXCEEDED');
-        }
-
-        this.logger.warn(`Gemini Router LLM Rate limit hit. Waiting ${sleepTime / 1000} seconds before retrying (Retries left: ${retries})...`);
-        await new Promise(resolve => setTimeout(resolve, sleepTime));
-        return this.runWithRetry(fn, retries - 1, initialDelayMs * 2);
-      }
-      throw error;
-    }
   }
 }

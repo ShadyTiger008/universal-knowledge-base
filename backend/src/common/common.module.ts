@@ -9,6 +9,7 @@ import { PromptBuilderService } from './prompt/prompt-builder.service';
 import { RedisModule } from './redis/redis.module';
 import { NotificationService } from './notification/notification.service';
 import { TelegramModule } from '../telegram/telegram.module';
+import { LlmModule } from './llm/llm.module';
 
 // New dynamic communication strategy providers and registry
 import { TelegramProvider } from './notification/providers/telegram.provider';
@@ -22,6 +23,7 @@ import { CommunicationRegistryService } from './notification/communication-regis
   imports: [
     RedisModule,
     TelegramModule,
+    LlmModule,
   ],
   providers: [
     ParserService,
@@ -49,6 +51,7 @@ import { CommunicationRegistryService } from './notification/communication-regis
     PromptBuilderService,
     NotificationService,
     CommunicationRegistryService,
+    LlmModule,
   ],
 })
 export class CommonModule {}
