@@ -45,6 +45,7 @@ export class QdrantService implements OnModuleInit {
 
       if (exists) {
         this.logger.log(`Collection "${COLLECTION_NAME}" already exists`);
+        await this.ensureIndexes();
         this.ready = true;
         return;
       }
@@ -57,10 +58,26 @@ export class QdrantService implements OnModuleInit {
       });
 
       this.logger.log(`Collection "${COLLECTION_NAME}" created (size: ${this.provider.dimensions})`);
+      await this.ensureIndexes();
       this.ready = true;
     } catch (error) {
       this.logger.error(`Failed to ensure collection "${COLLECTION_NAME}": ${error.message}`);
       throw error;
+    }
+  }
+
+  private async ensureIndexes(): Promise<void> {
+    const fieldsToIndex = ['userId', 'documentId'];
+    for (const field of fieldsToIndex) {
+      try {
+        await this.client.createPayloadIndex(COLLECTION_NAME, {
+          field_name: field,
+          field_schema: 'keyword',
+        });
+        this.logger.log(`Created Qdrant payload index for "${field}"`);
+      } catch (err) {
+        this.logger.debug(`Payload index for "${field}" already exists or could not be created: ${err.message}`);
+      }
     }
   }
 

@@ -87,14 +87,18 @@ export class ChatService {
     if (documentId) filter.documentId = documentId;
 
     const searchStart = Date.now();
-    const results = await this.qdrantService.search({
+    const rawResults = await this.qdrantService.search({
       vector,
       limit: topK,
       filter: Object.keys(filter).length > 0 ? filter : undefined,
     });
     const searchTime = Date.now() - searchStart;
 
-    console.log(`Search returned ${results.length} results in ${searchTime}ms`);
+    console.log(`Search returned ${rawResults.length} raw results in ${searchTime}ms`);
+
+    const threshold = parseFloat(process.env.SIMILARITY_THRESHOLD || '0.60');
+    const results = rawResults.filter(r => r.score >= threshold);
+    console.log(`Filtered to ${results.length} results above similarity threshold of ${threshold}`);
     console.log('');
 
     // -----------------------------------------------------------
@@ -178,6 +182,9 @@ export class ChatService {
   }
 
   private formatRetrievalResponse(question: string, results: { score: number; payload: Record<string, unknown> }[]): string {
+    if (results.length === 0) {
+      return "I don't have this information in the uploaded documents.";
+    }
     const lines: string[] = [
       `Retrieved ${results.length} relevant chunk(s) for the question: "${question}"`,
       '',
