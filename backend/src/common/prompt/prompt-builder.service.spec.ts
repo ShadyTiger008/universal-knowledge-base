@@ -33,7 +33,7 @@ describe('PromptBuilderService', () => {
     expect(prompt).toContain('Whenever the retrieved context is structured/tabular');
     expect(prompt).toContain('MUST ALWAYS format your response starting with a Markdown table');
     expect(prompt).toContain('The columns of the Markdown table must match the headers/keys');
-    expect(prompt).toContain('Directly below the Markdown table, ALWAYS add a horizontal rule');
+    expect(prompt).toContain('At the very end of your response (below the detailed answer), ALWAYS add a horizontal rule');
     expect(prompt).toContain('### 💬 Conversational Summary:');
   });
 });

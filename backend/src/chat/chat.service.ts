@@ -387,29 +387,36 @@ export class ChatService {
               return `| ${values.join(' | ')} |`;
             });
 
+            const detailedAnswerParts = rowsData.map(rowData => {
+              const chargeKey = Object.keys(rowData).find(k => k.toLowerCase() === 'charge' || k.toLowerCase() === 'crime' || k.toLowerCase() === 'offense');
+              const penalCodeKey = Object.keys(rowData).find(k => k.toLowerCase().includes('penal code') || k.toLowerCase() === 'code' || k.toLowerCase() === 'section');
+              const charge = chargeKey ? rowData[chargeKey] : 'crime';
+              const code = penalCodeKey ? rowData[penalCodeKey] : null;
+              
+              if (code) {
+                return `Based on the provided context, the charges related to ${charge} should be filed under penal code ${code}.`;
+              }
+              return `Based on the provided context, the charges related to ${charge} should be applied.`;
+            });
+            const detailedAnswer = detailedAnswerParts.join(' ');
+
             const bullets = rowsData.map((rowData, idx) => {
               const chargeKey = Object.keys(rowData).find(k => k.toLowerCase() === 'charge' || k.toLowerCase() === 'crime' || k.toLowerCase() === 'offense');
+              const fieldBullets = Object.entries(rowData)
+                .map(([k, v]) => `  • **${k}:** ${v}`)
+                .join('\n');
               
-              let summaryParts: string[] = [];
+              let explanation = '';
               if (chargeKey && rowData[chargeKey]) {
-                summaryParts.push(`Alright Sir/Ma'am today you are being charged with **${rowData[chargeKey]}**.`);
+                explanation = `  • Alright Sir/Ma'am today you are being charged with **${rowData[chargeKey]}**.`;
               } else {
-                summaryParts.push(`Record #${idx + 1}:`);
+                explanation = `  • Summarized details for Record #${idx + 1}.`;
               }
 
-              const details: string[] = [];
-              for (const [k, v] of Object.entries(rowData)) {
-                if (k !== chargeKey && v) {
-                  details.push(`**${k}:** ${v}`);
-                }
-              }
-              if (details.length > 0) {
-                summaryParts.push(`Details: ${details.join(', ')}`);
-              }
-              return `• ${summaryParts.join(' ')}`;
+              return `• Row #${idx + 1}:\n${fieldBullets}\n${explanation}`;
             }).join('\n');
 
-            answer = `${tableHeader}\n${tableAlignment}\n${tableRows.join('\n')}\n\n---\n### 💬 Conversational Summary:\n${bullets}`;
+            answer = `${tableHeader}\n${tableAlignment}\n${tableRows.join('\n')}\n\n${detailedAnswer}\n\n---\n### 💬 Conversational Summary:\n${bullets}`;
           } else {
             const docName = Array.from(docNames).join(', ') || 'Document';
             const sheetInfo = sheetNames.size > 0 ? ` (Sheet: ${Array.from(sheetNames).join(', ')})` : '';
