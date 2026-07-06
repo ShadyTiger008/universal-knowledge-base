@@ -17,6 +17,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@langchain/google-genai": "^2.2.0",
     "@langchain/textsplitters": "^1.0.1",
     "@nestjs/common": "^10.4.0",
     "@nestjs/config": "^3.2.0",

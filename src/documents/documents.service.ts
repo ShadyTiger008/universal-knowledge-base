@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ParserService } from '../common/parsers/parser.service';
 import { ChunkingService } from '../common/chunking/chunking.service';
+import { EmbeddingService } from '../common/embedding/embedding.service';
 import { DocumentStatus } from '@prisma/client';
 import { promises as fs } from 'fs';
 
@@ -11,6 +12,7 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly parserService: ParserService,
     private readonly chunkingService: ChunkingService,
+    private readonly embeddingService: EmbeddingService,
   ) {}
 
   async upload(file: Express.Multer.File, userId: string) {
@@ -113,12 +115,33 @@ export class DocumentsService {
 
       console.log('[DocumentService] [STAGE 3] Invoking ChunkingService.chunk()...');
       const chunkingResult = await this.chunkingService.chunk(document.id, parsed);
-      console.log('[DocumentService] [STAGE 3] Chunking finished. Result:', chunkingResult);
+      console.log('[DocumentService] [STAGE 3] Chunking finished. Chunks:', chunkingResult.chunks.length);
 
       // -------------------------------------------------------------
-      // STAGE 4: PIPELINE FINALIZATION & SAVING METADATA (READY STATUS)
+      // STAGE 4: EMBEDDING (EMBEDDING STATUS)
       // -------------------------------------------------------------
-      console.log('[DocumentService] [STAGE 4] Saving document metadata and marking as READY...');
+      console.log('[DocumentService] [STAGE 4] Transitioning status to EMBEDDING...');
+      await this.prisma.document.update({
+        where: { id: document.id },
+        data: { status: DocumentStatus.EMBEDDING },
+      });
+      await this.prisma.uploadJob.update({
+        where: { id: uploadJob.id },
+        data: { status: DocumentStatus.EMBEDDING, progress: 75 },
+      });
+
+      console.log('[DocumentService] [STAGE 4] Invoking EmbeddingService.embed()...');
+      const embeddedChunks = await this.embeddingService.embed(
+        chunkingResult.chunks,
+        file.originalname,
+      );
+      console.log('[DocumentService] [STAGE 4] Embedding finished. Vectors:', embeddedChunks.length);
+      console.log('[DocumentService] [STAGE 4] First vector sample (first 5 dims):', embeddedChunks[0]?.embedding?.slice(0, 5));
+
+      // -------------------------------------------------------------
+      // STAGE 5: PIPELINE FINALIZATION & SAVING METADATA (READY STATUS)
+      // -------------------------------------------------------------
+      console.log('[DocumentService] [STAGE 5] Saving document metadata and marking as READY...');
       const updateData: Record<string, unknown> = {
         status: DocumentStatus.READY,
       };

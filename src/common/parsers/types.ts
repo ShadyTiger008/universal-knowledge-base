@@ -62,5 +62,6 @@ export interface ChunkResult {
   content: string;
   chunkIndex: number;
   tokenCount: number;
+  embedding?: number[];
   metadata?: Record<string, unknown>;
 }
