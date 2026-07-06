@@ -1,15 +1,18 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { EmbeddingProvider } from '../common/embedding/embedding-provider.interface';
 import { GeminiEmbeddingProvider } from '../common/embedding/providers/gemini-embedding.provider';
 import { QdrantService } from '../common/qdrant/qdrant.service';
 import { PrismaService } from '../database/prisma.service';
 import { PromptBuilderService } from '../common/prompt/prompt-builder.service';
+import { RedisService } from '../common/redis/redis.service';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { MessageRole } from '@prisma/client';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class ChatService {
   private readonly llm: ChatGoogleGenerativeAI;
+  private readonly logger = new Logger(ChatService.name);
 
   constructor(
     @Inject(GeminiEmbeddingProvider)
@@ -17,10 +20,16 @@ export class ChatService {
     private readonly qdrantService: QdrantService,
     private readonly prisma: PrismaService,
     private readonly promptBuilder: PromptBuilderService,
+    private readonly redisService: RedisService,
   ) {
     this.llm = new ChatGoogleGenerativeAI({
       model: process.env.GEMINI_LLM_MODEL || 'gemini-flash-latest',
     });
+  }
+
+  private getCacheKey(prefix: string, data: string): string {
+    const hash = createHash('md5').update(data).digest('hex');
+    return `${prefix}:${hash}`;
   }
 
   async query(params: {
@@ -48,9 +57,7 @@ export class ChatService {
     // -----------------------------------------------------------
     if (userId) {
       console.log('[ChatService] [STEP 0] Persisting user question to conversation history...');
-
       const conversation = await this.getOrCreateConversation(userId);
-
       await this.prisma.message.create({
         data: {
           conversationId: conversation.id,
@@ -58,38 +65,90 @@ export class ChatService {
           content: question,
         },
       });
-
-      console.log(`[ChatService] [STEP 0] User message saved. Conversation ID: ${conversation.id}`);
-      console.log('');
+      console.log(`[ChatService] [STEP 0] User message saved. Conversation ID: ${conversation.id}\n`);
     }
 
     // -----------------------------------------------------------
-    // STEP 1: Embed the question using the same model as ingestion
+    // OPTIMIZATION: Check for cached final response in Redis
     // -----------------------------------------------------------
-    console.log('[ChatService] [STEP 1] Embedding question...');
-    console.log('');
-    console.log('Model:');
-    console.log(this.embeddingProvider.modelName);
-    console.log('');
+    const responseCacheKey = this.getCacheKey(
+      'chat:response',
+      `${question}:${userId || 'anon'}:${documentId || 'all'}:${topK}`
+    );
 
-    const embedStart = Date.now();
-    const vector = await this.embeddingProvider.embed(question);
-    const embedTime = Date.now() - embedStart;
+    try {
+      const cachedResponseStr = await this.redisService.get(responseCacheKey);
+      if (cachedResponseStr) {
+        this.logger.log(`Chat Response CACHE HIT for key: ${responseCacheKey}`);
+        const cachedResponse = JSON.parse(cachedResponseStr);
 
-    console.log('Vector generated.');
-    console.log('');
-    console.log('Dimensions:');
-    console.log(vector.length);
-    console.log('');
-    console.log('Embed time:');
-    console.log(`${embedTime}ms`);
-    console.log('');
+        // If the query was initiated by a registered user, persist the cached assistant reply
+        if (userId) {
+          console.log('[ChatService] Persisting cached assistant reply to conversation history...');
+          const conversation = await this.getOrCreateConversation(userId);
+          await this.prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              role: MessageRole.ASSISTANT,
+              content: cachedResponse.llm.answer,
+            },
+          });
+        }
+
+        console.log('===============================================================');
+        console.log('[ChatService] >>> RETRIEVAL PIPELINE COMPLETED (VIA CACHE) <<<');
+        console.log('===============================================================');
+        return cachedResponse;
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to read response cache: ${err.message}`);
+    }
+
+    this.logger.log(`Chat Response CACHE MISS for key: ${responseCacheKey}`);
+
+    // -----------------------------------------------------------
+    // STEP 1: Embed the question using cache-aside logic
+    // -----------------------------------------------------------
+    const embedCacheKey = this.getCacheKey(
+      'embedding',
+      `${this.embeddingProvider.modelName}:${question}`
+    );
+    let vector: number[] | null = null;
+    let embedTime = 0;
+
+    try {
+      const cachedVectorStr = await this.redisService.get(embedCacheKey);
+      if (cachedVectorStr) {
+        this.logger.log(`Embedding CACHE HIT for key: ${embedCacheKey}`);
+        vector = JSON.parse(cachedVectorStr);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to read embedding cache: ${err.message}`);
+    }
+
+    if (!vector) {
+      this.logger.log(`Embedding CACHE MISS for key: ${embedCacheKey}`);
+      console.log('[ChatService] [STEP 1] Embedding question...');
+      console.log('Model:', this.embeddingProvider.modelName);
+
+      const embedStart = Date.now();
+      vector = await this.embeddingProvider.embed(question);
+      embedTime = Date.now() - embedStart;
+
+      console.log(`Vector generated (dimensions: ${vector.length}) in ${embedTime}ms\n`);
+
+      try {
+        // Cache embedding for 30 days (2592000 seconds)
+        await this.redisService.set(embedCacheKey, JSON.stringify(vector), 30 * 24 * 60 * 60);
+      } catch (err) {
+        this.logger.warn(`Failed to save embedding to cache: ${err.message}`);
+      }
+    }
 
     // -----------------------------------------------------------
     // STEP 2: Search Qdrant for similar chunks
     // -----------------------------------------------------------
     console.log('[ChatService] [STEP 2] Searching Qdrant for similar chunks...');
-    console.log('');
 
     const filter: Record<string, unknown> = {};
     if (userId) filter.userId = userId;
@@ -107,8 +166,7 @@ export class ChatService {
 
     const threshold = parseFloat(process.env.SIMILARITY_THRESHOLD || '0.60');
     const results = rawResults.filter(r => r.score >= threshold);
-    console.log(`Filtered to ${results.length} results above similarity threshold of ${threshold}`);
-    console.log('');
+    console.log(`Filtered to ${results.length} results above similarity threshold of ${threshold}\n`);
 
     // -----------------------------------------------------------
     // STEP 3: Log each result
@@ -124,8 +182,7 @@ export class ChatService {
       console.log(`  Type   : ${r.payload.sourceType ?? '?'}`);
       console.log(`  Preview: ${preview}`);
     }
-    console.log('------------------------------------------------------');
-    console.log('');
+    console.log('------------------------------------------------------\n');
 
     const assistantContent = this.formatRetrievalResponse(question, results);
 
@@ -136,8 +193,7 @@ export class ChatService {
     let answer = '';
 
     if (results.length > 0) {
-      console.log('[ChatService] [STEP 4] Building prompt via PromptBuilderService...');
-      console.log('');
+      console.log('[ChatService] [STEP 4] Building prompt via PromptBuilderService...\n');
 
       prompt = this.promptBuilder.build({
         question,
@@ -148,8 +204,7 @@ export class ChatService {
       console.log('GENERATED PROMPT');
       console.log('------------------------------------------------------');
       console.log(prompt);
-      console.log('------------------------------------------------------');
-      console.log('');
+      console.log('------------------------------------------------------\n');
 
       console.log('[ChatService] [STEP 5] Invoking ChatGoogleGenerativeAI to get answer...');
       const llmStart = Date.now();
@@ -175,8 +230,7 @@ export class ChatService {
       console.log('LLM RESPONSE');
       console.log('------------------------------------------------------');
       console.log(answer);
-      console.log('------------------------------------------------------');
-      console.log('');
+      console.log('------------------------------------------------------\n');
     } else {
       console.log('[ChatService] [STEP 4] No matching contexts found above threshold. Skipping LLM invocation.');
       answer = "I don't have this information in the uploaded documents.";
@@ -187,9 +241,7 @@ export class ChatService {
     // -----------------------------------------------------------
     if (userId) {
       console.log('[ChatService] [STEP 6] Persisting assistant answer to conversation history...');
-
       const conversation = await this.getOrCreateConversation(userId);
-
       await this.prisma.message.create({
         data: {
           conversationId: conversation.id,
@@ -197,9 +249,7 @@ export class ChatService {
           content: answer,
         },
       });
-
-      console.log(`[ChatService] [STEP 6] Assistant response saved to conversation ${conversation.id}`);
-      console.log('');
+      console.log(`[ChatService] [STEP 6] Assistant response saved to conversation ${conversation.id}\n`);
     }
 
     // -----------------------------------------------------------
@@ -223,7 +273,7 @@ export class ChatService {
       self.findIndex(s => s.documentName === val.documentName && s.chunkIndex === val.chunkIndex) === idx
     );
 
-    return {
+    const responsePayload = {
       input: { question, userId, documentId, topK },
       llm: {
         answer,
@@ -245,6 +295,15 @@ export class ChatService {
         })),
       },
     };
+
+    try {
+      // Cache final chat responses for 2 hours (7200 seconds)
+      await this.redisService.set(responseCacheKey, JSON.stringify(responsePayload), 7200);
+    } catch (err) {
+      this.logger.warn(`Failed to write response cache: ${err.message}`);
+    }
+
+    return responsePayload;
   }
 
   private async runWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelayMs = 2000): Promise<T> {

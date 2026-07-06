@@ -16,4 +16,8 @@ export const configuration = () => ({
     secretKey: process.env.SUPABASE_SECRET_KEY,
     jwksUrl: process.env.SUPABASE_JWKS_URL,
   },
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+  },
 });
+

@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
   UploadedFile,
   UseInterceptors,
   Body,
@@ -9,8 +11,9 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
-import { ApiTags, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiConsumes, ApiBody, ApiOperation } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
+import * as crypto from 'crypto';
 
 const ALLOWED_MIMES = [
   'application/pdf',
@@ -60,6 +63,7 @@ export class DocumentsController {
       },
     },
   })
+  @ApiOperation({ summary: 'Upload a document for async ingestion' })
   async upload(
     @UploadedFile() file: Express.Multer.File,
     @Body('userId') userId: string,
@@ -76,5 +80,12 @@ export class DocumentsController {
     });
 
     return this.documentsService.upload(file, userId);
+  }
+
+  @Get('status/:jobId')
+  @ApiOperation({ summary: 'Get the progress and status of a document ingestion job' })
+  async getStatus(@Param('jobId') jobId: string) {
+    if (!jobId) throw new BadRequestException('jobId parameter is required');
+    return this.documentsService.getJobStatus(jobId);
   }
 }
