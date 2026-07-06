@@ -233,8 +233,13 @@ export class ChatService {
 
       try {
         if (process.env.USE_MOCK_LLM === 'true') {
-          answer = `Mock response: Based on the provided context, yes, no separate Board Resolution is required for Altiora because it is a sole proprietorship.`;
-          console.log(`[ChatService] Mock LLM answered in 0ms`);
+          const mainChunk = results[0]?.payload;
+          const docName = (mainChunk?.documentName as string) || 'Document';
+          const textContent = (mainChunk?.text as string) || '';
+          const sheetInfo = mainChunk?.sheetName ? ` (Sheet: ${mainChunk.sheetName})` : '';
+          
+          answer = `[Mock LLM Response - ${docName}${sheetInfo}]:\nBased on the retrieved context, here is the relevant excerpt:\n\n${textContent}`;
+          console.log(`[ChatService] Mock LLM answered dynamically in 0ms`);
         } else {
           const response = await this.runWithRetry(async () => {
             return await this.llm.invoke(prompt!);
@@ -244,8 +249,12 @@ export class ChatService {
         }
       } catch (error) {
         console.error('[ChatService] LLM invocation failed completely:', error);
-        answer = "I'm sorry, I encountered a temporary issue generating a natural answer. Here is the relevant information found in the documents:\n\n" + 
-                 results.map((r, i) => `**Source ${i + 1} (${r.payload.documentName || 'Unknown Document'}, Chunk ${r.payload.chunkIndex ?? 0}):**\n${r.payload.text}`).join('\n\n');
+        if (error.message === 'AI_RATE_LIMIT_EXCEEDED' || error.message.includes('429') || error.message.includes('quota')) {
+          answer = "I'm sorry, the AI service is currently rate-limited on the free tier. Please try again in a few moments. (If you are developing locally, you can set USE_MOCK_LLM=true in your .env file to bypass this limit).";
+        } else {
+          answer = "I'm sorry, I encountered a temporary issue generating a natural answer. Here is the relevant information found in the documents:\n\n" + 
+                   results.map((r, i) => `**Source ${i + 1} (${r.payload.documentName || 'Unknown Document'}, Chunk ${r.payload.chunkIndex ?? 0}):**\n${r.payload.text}`).join('\n\n');
+        }
       }
 
       console.log('------------------------------------------------------');
@@ -343,6 +352,12 @@ export class ChatService {
         if (match && match[1]) {
           sleepTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000; // Add 1s buffer
         }
+        
+        if (sleepTime > 5000) {
+          console.warn(`[ChatService] Gemini LLM Rate limit wait is too long (${sleepTime}ms), failing early.`);
+          throw new Error('AI_RATE_LIMIT_EXCEEDED');
+        }
+
         console.warn(
           `[ChatService] Gemini LLM Rate limit hit. Waiting ${sleepTime / 1000} seconds before retrying (Retries left: ${retries})...`
         );
