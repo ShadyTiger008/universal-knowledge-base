@@ -3,6 +3,7 @@ import { EmbeddingProvider } from '../common/embedding/embedding-provider.interf
 import { GeminiEmbeddingProvider } from '../common/embedding/providers/gemini-embedding.provider';
 import { QdrantService } from '../common/qdrant/qdrant.service';
 import { PrismaService } from '../database/prisma.service';
+import { PromptBuilderService } from '../common/prompt/prompt-builder.service';
 import { MessageRole } from '@prisma/client';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class ChatService {
     private readonly embeddingProvider: EmbeddingProvider,
     private readonly qdrantService: QdrantService,
     private readonly prisma: PrismaService,
+    private readonly promptBuilder: PromptBuilderService,
   ) {}
 
   async query(params: {
@@ -121,7 +123,25 @@ export class ChatService {
     const assistantContent = this.formatRetrievalResponse(question, results);
 
     // -----------------------------------------------------------
-    // STEP 4: Persist the retrieval results to chat history
+    // STEP 4: Build the LLM prompt via PromptBuilderService
+    // -----------------------------------------------------------
+    console.log('[ChatService] [STEP 4] Building prompt via PromptBuilderService...');
+    console.log('');
+
+    const prompt = this.promptBuilder.build({
+      question,
+      chunks: results,
+    });
+
+    console.log('------------------------------------------------------');
+    console.log('GENERATED PROMPT');
+    console.log('------------------------------------------------------');
+    console.log(prompt);
+    console.log('------------------------------------------------------');
+    console.log('');
+
+    // -----------------------------------------------------------
+    // STEP 5: Persist the retrieval results to chat history
     // -----------------------------------------------------------
     if (userId) {
       console.log('[ChatService] [STEP 4] Persisting retrieval results to conversation history...');
@@ -150,6 +170,7 @@ export class ChatService {
 
     return {
       input: { question, userId, documentId, topK },
+      prompt,
       retrieval: {
         message: assistantContent,
         thresholdApplied: threshold,

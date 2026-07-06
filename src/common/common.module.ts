@@ -5,6 +5,7 @@ import { TextCleanerService } from './cleaner/text-cleaner.service';
 import { EmbeddingService } from './embedding/embedding.service';
 import { GeminiEmbeddingProvider } from './embedding/providers/gemini-embedding.provider';
 import { QdrantService } from './qdrant/qdrant.service';
+import { PromptBuilderService } from './prompt/prompt-builder.service';
 
 @Global()
 @Module({
@@ -15,6 +16,7 @@ import { QdrantService } from './qdrant/qdrant.service';
     GeminiEmbeddingProvider,
     EmbeddingService,
     QdrantService,
+    PromptBuilderService,
   ],
   exports: [
     ParserService,
@@ -23,6 +25,7 @@ import { QdrantService } from './qdrant/qdrant.service';
     GeminiEmbeddingProvider,
     EmbeddingService,
     QdrantService,
+    PromptBuilderService,
   ],
 })
 export class CommonModule {}
