@@ -27,6 +27,12 @@ export class PromptBuilderService {
     sections.push('- Do not include any source citations, document names, page numbers, or chunk references in your response (e.g. do not append bracketed source citations).');
     sections.push('- Keep your answer clear, concise, and directly relevant to the question.');
     sections.push('- If the user asks to summarize, compare, list, or present structured data from the document, format the response as a Markdown table.');
+    sections.push('- When displaying a Markdown table of charges/penal codes, ALWAYS append a clear, conversational, and bulleted summary directly below the table. Example:');
+    sections.push('  ### 💬 Conversational Summary:');
+    sections.push('  • **Charge:** [Code/Article number and name]');
+    sections.push('  • **Fine:** [Fine amount]');
+    sections.push('  • **Wanted Level:** [Stars / severity, if any]');
+    sections.push('  • **Description:** [A short, simple 1-sentence summary of the crime/charge description]');
     sections.push('');
 
     // -----------------------------------------------------------

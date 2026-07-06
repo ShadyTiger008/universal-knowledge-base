@@ -237,9 +237,34 @@ export class ChatService {
           const mainChunk = results[0]?.payload;
           const docName = (mainChunk?.documentName as string) || 'Document';
           const textContent = (mainChunk?.text as string) || '';
-          const sheetInfo = mainChunk?.sheetName ? ` (Sheet: ${mainChunk.sheetName})` : '';
           
-          answer = `[Mock LLM Response - ${docName}${sheetInfo}]:\nBased on the retrieved context, here is the relevant excerpt:\n\n${textContent}`;
+          const codeMatch = textContent.match(/(?:Traffic Code|Penal Code|Code)\s*:\s*([^\r\n]+)/i);
+          const crimeMatch = textContent.match(/(?:CRIME|Crime)\s*:\s*([^\r\n]+)/i);
+          const fineMatch = textContent.match(/(?:FINE|Fine)\s*:\s*([^\r\n]+)/i);
+          const starsMatch = textContent.match(/(?:Stars|Wanted Level|Level|Notes)\s*:\s*([^\r\n]+)/i);
+          const descMatch = textContent.match(/(?:Description|Notes|Preview)\s*:\s*([^\r\n]+)/i);
+          
+          const code = codeMatch ? codeMatch[1].trim() : 'N/A';
+          const crime = crimeMatch ? crimeMatch[1].trim() : 'N/A';
+          const fine = fineMatch ? fineMatch[1].trim() : 'N/A';
+          const stars = starsMatch ? starsMatch[1].trim() : 'N/A';
+          const desc = descMatch ? descMatch[1].trim() : 'N/A';
+          
+          if (crimeMatch || fineMatch || codeMatch) {
+            answer = `| Penal/Traffic Code | Crime | Fine | Stars/Notes |
+| :--- | :--- | :--- | :--- |
+| ${code} | ${crime} | ${fine} | ${stars} |
+
+---
+### 💬 Conversational Summary:
+• **Charge:** ${code} (${crime})
+• **Fine:** ${fine}
+• **Wanted Level:** ${stars}
+• **Description:** ${desc !== 'N/A' ? desc : `Violation of code ${code}.`}`;
+          } else {
+            const sheetInfo = mainChunk?.sheetName ? ` (Sheet: ${mainChunk.sheetName})` : '';
+            answer = `[Mock LLM Response - ${docName}${sheetInfo}]:\nBased on the retrieved context, here is the relevant excerpt:\n\n${textContent}`;
+          }
           console.log(`[ChatService] Mock LLM answered dynamically in 0ms`);
         } else {
           const response = await this.runWithRetry(async () => {
