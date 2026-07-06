@@ -51,7 +51,6 @@ export class ChunkingService {
   async chunk(documentId: string, parsedData: DocumentContent): Promise<ChunkingOutput> {
     console.log(`[ChunkingService] Starting chunking process for document: ${documentId}`);
 
-    const docType = parsedData.metadata.documentType?.toLowerCase();
     const filename = parsedData.metadata.originalFilename || documentId;
 
     const cleaningReport: ComprehensiveCleaningReport = {
@@ -178,6 +177,11 @@ export class ChunkingService {
       content: doc.pageContent,
       chunkIndex: index,
       tokenCount: this.estimateTokens(doc.pageContent),
+      metadata: {
+        documentId,
+        sourceDocument: report.filename,
+        sourceType: 'text',
+      },
     }));
 
     console.log(`[TextChunker] Created ${chunks.length} chunks`);
@@ -185,7 +189,7 @@ export class ChunkingService {
   }
 
   // ---------------------------------------------------------------
-  // MARKDOWN CHUNKER - MarkdownHeaderSplitter → RecursiveCharacterTextSplitter
+  // MARKDOWN CHUNKER - MarkdownHeaderSplitter -> RecursiveCharacterTextSplitter
   // ---------------------------------------------------------------
 
   private async chunkMarkdown(
@@ -208,7 +212,12 @@ export class ChunkingService {
       content: doc.pageContent,
       chunkIndex: index,
       tokenCount: this.estimateTokens(doc.pageContent),
-      metadata: doc.metadata,
+      metadata: {
+        documentId,
+        sourceDocument: report.filename,
+        sourceType: 'markdown',
+        ...doc.metadata,
+      },
     }));
 
     console.log(`[MarkdownChunker] Created ${chunks.length} chunks`);
@@ -216,7 +225,7 @@ export class ChunkingService {
   }
 
   // ---------------------------------------------------------------
-  // WORKBOOK CHUNKER - one chunk per row
+  // WORKBOOK CHUNKER - one chunk per data row, skip heading rows
   // ---------------------------------------------------------------
 
   private async chunkWorkbook(
@@ -228,16 +237,29 @@ export class ChunkingService {
     let chunkIndex = 0;
 
     for (const sheet of parsedData.sheets) {
+      let currentSection = '';
+
       for (const row of sheet.rows) {
-        const content = this.formatRowChunk(sheet.sheetName, sheet.headers, row);
+        if (row.isHeading) {
+          currentSection = row.headingText || row.values[0] || '';
+          continue;
+        }
+
+        const content = this.formatRowChunk(sheet.sheetName, sheet.headers, row, currentSection);
+        if (!content) continue;
+
         chunks.push({
           content,
           chunkIndex: chunkIndex++,
           tokenCount: this.estimateTokens(content),
           metadata: {
+            documentId,
+            sourceDocument: report.filename,
+            sourceType: 'workbook',
             sheetName: sheet.sheetName,
             sheetType: sheet.sheetType,
             rowNumber: row.rowNumber,
+            section: currentSection || undefined,
           },
         });
       }
@@ -248,7 +270,7 @@ export class ChunkingService {
   }
 
   // ---------------------------------------------------------------
-  // CSV CHUNKER - one chunk per row
+  // CSV CHUNKER - one chunk per data row, skip heading rows
   // ---------------------------------------------------------------
 
   private async chunkCsv(
@@ -260,15 +282,28 @@ export class ChunkingService {
     let chunkIndex = 0;
 
     for (const sheet of parsedData.sheets) {
+      let currentSection = '';
+
       for (const row of sheet.rows) {
-        const content = this.formatRowChunk(sheet.sheetName, sheet.headers, row);
+        if (row.isHeading) {
+          currentSection = row.headingText || row.values[0] || '';
+          continue;
+        }
+
+        const content = this.formatRowChunk(sheet.sheetName, sheet.headers, row, currentSection);
+        if (!content) continue;
+
         chunks.push({
           content,
           chunkIndex: chunkIndex++,
           tokenCount: this.estimateTokens(content),
           metadata: {
+            documentId,
+            sourceDocument: report.filename,
+            sourceType: 'csv',
             sheetName: sheet.sheetName,
             rowNumber: row.rowNumber,
+            section: currentSection || undefined,
           },
         });
       }
@@ -279,7 +314,7 @@ export class ChunkingService {
   }
 
   // ---------------------------------------------------------------
-  // ROWS CHUNKER - one chunk per row
+  // ROWS CHUNKER - one chunk per data row, skip heading rows
   // ---------------------------------------------------------------
 
   private async chunkRows(
@@ -289,19 +324,37 @@ export class ChunkingService {
   ): Promise<ChunkingOutput> {
     const chunks: ChunkResult[] = [];
     let chunkIndex = 0;
+    let currentSection = '';
 
     for (const row of parsedData.rows) {
+      if (row.isHeading) {
+        currentSection = row.headingText || row.values[0] || '';
+        continue;
+      }
+
       const headers = row.headers ?? [];
-      const content = headers.length > 0
-        ? headers.map((h, i) => `${h}: ${row.values[i] ?? ''}`).join('\n')
-        : row.values.join(' | ');
+      const normalizedValues = row.values.map(v => this.normalizeCellValue(v));
+
+      const fields = headers
+        .map((h, i) => ({ header: h, value: normalizedValues[i] ?? '' }))
+        .filter(({ value }) => value.trim() !== '');
+
+      const content = fields.length > 0
+        ? fields.map(({ header, value }) => `${header}: ${value}`).join('\n')
+        : '';
+
+      if (!content) continue;
 
       chunks.push({
         content,
         chunkIndex: chunkIndex++,
         tokenCount: this.estimateTokens(content),
         metadata: {
+          documentId,
+          sourceDocument: report.filename,
+          sourceType: 'rows',
           rowNumber: row.rowNumber,
+          section: currentSection || undefined,
         },
       });
     }
@@ -331,16 +384,29 @@ export class ChunkingService {
         : (parsedData as CsvDocumentContent).sheets;
 
       for (const sheet of sheets) {
+        let currentSection = '';
+
         for (const row of sheet.rows) {
-          const content = this.formatRowChunk(sheet.sheetName, sheet.headers, row);
+          if (row.isHeading) {
+            currentSection = row.headingText || row.values[0] || '';
+            continue;
+          }
+
+          const content = this.formatRowChunk(sheet.sheetName, sheet.headers, row, currentSection);
+          if (!content) continue;
+
           chunks.push({
             content,
             chunkIndex: chunkIndex++,
             tokenCount: this.estimateTokens(content),
             metadata: {
+              documentId,
+              sourceDocument: report.filename,
+              sourceType: sheet.sheetType === 'GUIDE' ? 'guide' : parsedData.type,
               sheetName: sheet.sheetName,
               sheetType: sheet.sheetType,
               rowNumber: row.rowNumber,
+              section: currentSection || undefined,
             },
           });
         }
@@ -407,29 +473,111 @@ export class ChunkingService {
     return Math.ceil(text.length / 4);
   }
 
-  private formatRowChunk(sheetName: string, headers: string[], row: Row): string {
+  /**
+   * Format a data row as a chunk string.
+   * - Heading rows are NOT passed here (they set currentSection instead).
+   * - Empty values are filtered out.
+   * - Money values are normalized to $X,XXX.XX format.
+   * - Star ratings are normalized to Severity: N.
+   */
+  private formatRowChunk(
+    sheetName: string,
+    headers: string[],
+    row: Row,
+    currentSection?: string,
+  ): string {
     const parts: string[] = [`[Sheet: ${sheetName}]`];
 
-    if (row.headingText) {
-      parts.push(`[Section: ${row.headingText}]`);
+    if (currentSection) {
+      parts.push(`[Section: ${currentSection}]`);
     }
 
     if (headers.length > 0 && row.values.length > 0) {
-      const fields = headers.map((h, i) => `${h}: ${row.values[i] ?? ''}`);
-      parts.push(fields.join('\n'));
+      const fields = headers
+        .map((h, i) => {
+          const raw = row.values[i] ?? '';
+          const normalized = this.normalizeCellValue(raw);
+          return { header: h, value: normalized };
+        })
+        .filter(({ value }) => value.trim() !== '')
+        .map(({ header, value }) => `${header}: ${value}`);
+
+      if (fields.length > 0) {
+        parts.push(fields.join('\n'));
+      } else {
+        return '';
+      }
     } else {
-      parts.push(row.values.join(' | '));
+      const nonEmpty = row.values
+        .map(v => this.normalizeCellValue(v))
+        .filter(v => v.trim() !== '');
+      if (nonEmpty.length > 0) {
+        parts.push(nonEmpty.join(' | '));
+      } else {
+        return '';
+      }
     }
 
     return parts.join('\n');
   }
+
+  /**
+   * Normalize a cell value: money formatting and star rating conversion.
+   */
+  private normalizeCellValue(value: string): string {
+    let result = value.trim();
+    result = this.normalizeMoney(result);
+    result = this.normalizeStars(result);
+    return result;
+  }
+
+  /**
+   * Convert plain numbers (>= 100) to $X,XXX.XX format.
+   * Also standardizes existing $ values.
+   */
+  private normalizeMoney(value: string): string {
+    const numStr = value.replace(/[$,]/g, '').trim();
+    const num = parseFloat(numStr);
+
+    if (isNaN(num)) return value;
+
+    // Only normalize if it looks like money:
+    // - Has a $ sign prefix, OR
+    // - Is a plain number >= 100 (likely a fine/penalty amount)
+    const hasDollarSign = /^\$/.test(value.trim());
+
+    if (hasDollarSign || (/^\d+(?:\.\d+)?$/.test(numStr) && num >= 100)) {
+      return '$' + Math.round(num).toLocaleString('en-US');
+    }
+
+    return value;
+  }
+
+  /**
+   * Convert star emoji / star characters to "Severity: N".
+   */
+  private normalizeStars(value: string): string {
+    const starPattern = /[\u2605\u2B50\u2728\u2606⭐🌟\u{1F31F}\u{1F320}]/gu;
+    const stars = value.match(starPattern);
+    if (stars && stars.length > 0) {
+      const withoutStars = value.replace(starPattern, '').trim();
+      if (withoutStars.length === 0 || withoutStars.length < value.length / 2) {
+        return `Severity: ${stars.length}`;
+      }
+    }
+    return value;
+  }
+
+  // ---------------------------------------------------------------
+  // CLEANING HELPERS
+  // ---------------------------------------------------------------
 
   private cleanRows(rows: Row[]): CleanedRowsResult {
     let rowsProcessed = rows.length;
     let rowsRemoved = 0;
     let cellsTrimmed = 0;
     let unicodeFixed = 0;
-    const cleanedRows = [];
+    const cleanedRows: Row[] = [];
 
     for (const row of rows) {
       let isRowEmpty = true;
@@ -484,7 +632,7 @@ export class ChunkingService {
         return res.cleanedText;
       });
 
-      const cleanedRows = [];
+      const cleanedRows: Row[] = [];
       for (const row of sheet.rows) {
         let isRowEmpty = true;
         const cleanedValues = row.values.map(val => {
@@ -537,6 +685,10 @@ export class ChunkingService {
     return { totalRowsProcessed, totalRowsRemoved, totalCellsTrimmed, totalUnicodeFixed };
   }
 
+  // ---------------------------------------------------------------
+  // LOGGING
+  // ---------------------------------------------------------------
+
   private logTextStats(filename: string, stats: CleaningStats): void {
     console.log('\n[Cleaner]');
     console.log(`Document:\n${filename}`);
@@ -553,7 +705,7 @@ export class ChunkingService {
     console.log('Done.\n');
   }
 
-  private logRowStats(filename: string, result: any): void {
+  private logRowStats(filename: string, result: CleanedRowsResult): void {
     console.log('\n[Cleaner]');
     console.log(`Document:\n${filename}`);
     console.log(`Rows:\n${result.rowsProcessed}`);
@@ -569,7 +721,12 @@ export class ChunkingService {
     console.log(`Unicode Fixed:       ${result.unicodeFixed}\n`);
   }
 
-  private logWorkbookStats(workbookName: string, agg: any): void {
+  private logWorkbookStats(workbookName: string, agg: {
+    totalRowsProcessed: number;
+    totalRowsRemoved: number;
+    totalCellsTrimmed: number;
+    totalUnicodeFixed: number;
+  }): void {
     console.log('\n[Cleaner]');
     console.log(`Workbook:\n${workbookName}\n`);
     console.log('Done.\n');
