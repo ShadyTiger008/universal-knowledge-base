@@ -21,6 +21,7 @@
     "@bull-board/api": "^8.1.0",
     "@bull-board/express": "^8.1.0",
     "@bull-board/nestjs": "^8.1.0",
+    "@langchain/core": "^1.2.1",
     "@langchain/google-genai": "^2.2.0",
     "@langchain/textsplitters": "^1.0.1",
     "@nestjs/bullmq": "^11.0.4",
