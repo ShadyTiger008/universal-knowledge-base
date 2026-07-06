@@ -9,12 +9,7 @@ import { RedisService } from '../common/redis/redis.service';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { MessageRole } from '@prisma/client';
 import { createHash } from 'crypto';
-
-const FAST_RULES = new Set([
-  'hi', 'hello', 'hey', 'good morning', 'good night', 'good afternoon', 
-  'how are you', 'thank you', 'thanks', 'welcome', 'bye', 'goodbye',
-  'hi there', 'hello there', 'whats up', 'whatup', 'help'
-]);
+import { QueryRouterService } from './query-router.service';
 
 @Injectable()
 export class ChatService {
@@ -29,6 +24,7 @@ export class ChatService {
     private readonly promptBuilder: PromptBuilderService,
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
+    private readonly queryRouterService: QueryRouterService,
   ) {
     const apiKey = this.configService.get<string>('GOOGLE_API_KEY')?.replace(/"/g, '');
     const model = this.configService.get<string>('GEMINI_LLM_MODEL') || 'gemini-flash-latest';
@@ -84,7 +80,7 @@ export class ChatService {
     // -----------------------------------------------------------
     // ROUTING LAYER: Classify the user query (GENERAL_CHAT vs RAG)
     // -----------------------------------------------------------
-    const route = await this.routeQuery(question);
+    const route = await this.queryRouterService.route(question);
 
     if (route === 'GENERAL_CHAT') {
       console.log('[ChatService] Routing to GENERAL_CHAT path...');
@@ -532,58 +528,7 @@ ${bullets}`;
     }
   }
 
-  async routeQuery(question: string): Promise<'GENERAL_CHAT' | 'RAG' | 'TOOL'> {
-    // 1. Fast Rule Engine Check
-    const normalized = question
-      .toLowerCase()
-      .trim()
-      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '');
-    
-    if (FAST_RULES.has(normalized)) {
-      this.logger.log(`[ChatService] Fast-rule matched for greeting/smalltalk: "${normalized}". Routing to GENERAL_CHAT.`);
-      return 'GENERAL_CHAT';
-    }
 
-    // If mock mode is active, check if the question sounds like a general greeting or RAG lookup
-    if (process.env.USE_MOCK_LLM === 'true') {
-      const isGeneral = /^(who are you|what is your name|how's it going|tell me a joke|explain|hello|hi|what is)/i.test(normalized) && 
-                        !/(charge|fine|star|fee|speed|violation|parking|permit|code|rule|document|file|sheet|read)/i.test(normalized);
-      return isGeneral ? 'GENERAL_CHAT' : 'RAG';
-    }
-
-    // 2. LLM-based Router
-    const routerPrompt = `You are an AI Query Router. Analyze the user's input and classify it into one of these routes:
-1. GENERAL_CHAT: Greeting, smalltalk, general knowledge, questions about you (e.g. who are you), or generic chatter not requiring document search.
-2. RAG: Requests for facts, rules, codes, pricing, details, policies, summaries, or lookup that requires searching the user's uploaded files.
-3. TOOL: Request for math calculations or external tool operations.
-
-Response format MUST be a valid JSON object matching this schema:
-{
-  "route": "GENERAL_CHAT" | "RAG" | "TOOL"
-}
-Do not output any other text, markdown formatting, or explanation.
-
-User Input: "${question}"`;
-
-    try {
-      const response = await this.runWithRetry(async () => {
-        return await this.llm.invoke(routerPrompt);
-      }, 2, 1000);
-
-      const content = String(response.content).trim();
-      const cleaned = content.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
-      const parsed = JSON.parse(cleaned) as { route: string };
-      
-      if (parsed.route === 'GENERAL_CHAT' || parsed.route === 'RAG' || parsed.route === 'TOOL') {
-        this.logger.log(`[ChatService] Router LLM classified query as: ${parsed.route}`);
-        return parsed.route;
-      }
-    } catch (err) {
-      this.logger.warn(`[ChatService] Router LLM failed or returned invalid JSON: ${err.message}. Defaulting to RAG.`);
-    }
-
-    return 'RAG';
-  }
 
   private async getOrCreateConversation(userId: string) {
     const existing = await this.prisma.conversation.findFirst({
