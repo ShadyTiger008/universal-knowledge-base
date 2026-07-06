@@ -344,45 +344,77 @@ export class ChatService {
 
       try {
         if (process.env.USE_MOCK_LLM === 'true') {
-          const mainChunk = results[0]?.payload;
-          const docName = (mainChunk?.documentName as string) || 'Document';
-          const textContent = (mainChunk?.text as string) || '';
-          
-          const lines = textContent
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0 && !line.startsWith('[') && !line.endsWith(']'));
-            
-          const keyValuePairs: Record<string, string> = {};
-          
-          for (const line of lines) {
-            const separatorIdx = line.indexOf(':');
-            if (separatorIdx > 0) {
-              const key = line.substring(0, separatorIdx).trim();
-              const val = line.substring(separatorIdx + 1).trim();
-              if (key.length > 0 && key.length < 30 && val.length > 0) {
-                keyValuePairs[key] = val;
+          const rowsData: Record<string, string>[] = [];
+          const allHeaders = new Set<string>();
+          const docNames = new Set<string>();
+          const sheetNames = new Set<string>();
+
+          for (const r of results) {
+            const payload = r.payload;
+            if (payload.documentName) docNames.add(payload.documentName as string);
+            if (payload.sheetName) sheetNames.add(payload.sheetName as string);
+
+            const textContent = (payload.text as string) || '';
+            const lines = textContent
+              .split('\n')
+              .map(line => line.trim())
+              .filter(line => line.length > 0 && !line.startsWith('[') && !line.endsWith(']'));
+
+            const rowPairs: Record<string, string> = {};
+            for (const line of lines) {
+              const separatorIdx = line.indexOf(':');
+              if (separatorIdx > 0) {
+                const key = line.substring(0, separatorIdx).trim();
+                const val = line.substring(separatorIdx + 1).trim();
+                if (key.length > 0 && key.length < 50 && val.length > 0) {
+                  rowPairs[key] = val;
+                  allHeaders.add(key);
+                }
               }
             }
-          }
-          
-          const keys = Object.keys(keyValuePairs);
-          if (keys.length > 0) {
-            const headers = keys.join(' | ');
-            const alignment = keys.map(() => ':---').join(' | ');
-            const rowValues = keys.map(k => keyValuePairs[k]).join(' | ');
-            const bullets = keys.map(k => `• **${k}:** ${keyValuePairs[k]}`).join('\n');
-            
-            answer = `| ${headers} |
-| ${alignment} |
-| ${rowValues} |
 
----
-### 💬 Conversational Summary:
-${bullets}`;
+            if (Object.keys(rowPairs).length > 0) {
+              rowsData.push(rowPairs);
+            }
+          }
+
+          const headers = Array.from(allHeaders);
+          if (headers.length > 0 && rowsData.length > 0) {
+            const tableHeader = `| ${headers.join(' | ')} |`;
+            const tableAlignment = `| ${headers.map(() => ':---').join(' | ')} |`;
+            const tableRows = rowsData.map(rowData => {
+              const values = headers.map(h => rowData[h] ?? '-');
+              return `| ${values.join(' | ')} |`;
+            });
+
+            const bullets = rowsData.map((rowData, idx) => {
+              const chargeKey = Object.keys(rowData).find(k => k.toLowerCase() === 'charge' || k.toLowerCase() === 'crime' || k.toLowerCase() === 'offense');
+              
+              let summaryParts: string[] = [];
+              if (chargeKey && rowData[chargeKey]) {
+                summaryParts.push(`Alright Sir/Ma'am today you are being charged with **${rowData[chargeKey]}**.`);
+              } else {
+                summaryParts.push(`Record #${idx + 1}:`);
+              }
+
+              const details: string[] = [];
+              for (const [k, v] of Object.entries(rowData)) {
+                if (k !== chargeKey && v) {
+                  details.push(`**${k}:** ${v}`);
+                }
+              }
+              if (details.length > 0) {
+                summaryParts.push(`Details: ${details.join(', ')}`);
+              }
+              return `• ${summaryParts.join(' ')}`;
+            }).join('\n');
+
+            answer = `${tableHeader}\n${tableAlignment}\n${tableRows.join('\n')}\n\n---\n### 💬 Conversational Summary:\n${bullets}`;
           } else {
-            const sheetInfo = mainChunk?.sheetName ? ` (Sheet: ${mainChunk.sheetName})` : '';
-            answer = `[Mock LLM Response - ${docName}${sheetInfo}]:\nBased on the retrieved context, here is the relevant excerpt:\n\n${textContent}`;
+            const docName = Array.from(docNames).join(', ') || 'Document';
+            const sheetInfo = sheetNames.size > 0 ? ` (Sheet: ${Array.from(sheetNames).join(', ')})` : '';
+            const allTexts = results.map(r => r.payload.text).join('\n\n');
+            answer = `[Mock LLM Response - ${docName}${sheetInfo}]:\nBased on the retrieved context, here is the relevant excerpt:\n\n${allTexts}`;
           }
           console.log(`[ChatService] Mock LLM answered dynamically in 0ms`);
         } else {

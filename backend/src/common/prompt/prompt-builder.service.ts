@@ -26,12 +26,9 @@ export class PromptBuilderService {
     sections.push('- Do not make up or infer information that is not present in the context.');
     sections.push('- Do not include any source citations, document names, page numbers, or chunk references in your response (e.g. do not append bracketed source citations).');
     sections.push('- Keep your answer clear, concise, and directly relevant to the question.');
-    sections.push('- If the user asks to summarize, compare, list, or present structured data from the document, format the response as a Markdown table.');
-    sections.push('- Directly below any Markdown table, ALWAYS append a conversational, simplified bulleted breakdown of the table\'s rows. For each row in the table, list its key details in a friendly, conversational format using the table\'s actual column headers. Example structure:');
-    sections.push('  ### 💬 Conversational Summary:');
-    sections.push('  • **[Column Header 1]:** [Corresponding Value]');
-    sections.push('  • **[Column Header 2]:** [Corresponding Value]');
-    sections.push('  • [A brief, natural 1-sentence explanation summarizing the row]');
+    sections.push('- Whenever the retrieved context is structured/tabular (e.g., contains rows with fields like "Penal Code: ...", "Charge: ...", etc.), you MUST ALWAYS format your response starting with a Markdown table that displays all relevant records, crimes, charges, or data points matching the query. Do not skip this table.');
+    sections.push('- The columns of the Markdown table must match the headers/keys found in the structured context (e.g., "Penal Code", "Charge", "Fine", "Wanted Level", etc. as columns). Do not include metadata like Sheet name or Section name in the table columns.');
+    sections.push('- Directly below the Markdown table, ALWAYS add a horizontal rule `---` followed by a section starting with `### 💬 Conversational Summary:`. Under this section, write a friendly, conversational summary of the table\'s rows, detailing the key charges or statement to make (e.g. "Alright Sir/Ma\'am today you are being charged with [Charge Name]").');
     sections.push('');
 
     // -----------------------------------------------------------
