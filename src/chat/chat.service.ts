@@ -4,17 +4,24 @@ import { GeminiEmbeddingProvider } from '../common/embedding/providers/gemini-em
 import { QdrantService } from '../common/qdrant/qdrant.service';
 import { PrismaService } from '../database/prisma.service';
 import { PromptBuilderService } from '../common/prompt/prompt-builder.service';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { MessageRole } from '@prisma/client';
 
 @Injectable()
 export class ChatService {
+  private readonly llm: ChatGoogleGenerativeAI;
+
   constructor(
     @Inject(GeminiEmbeddingProvider)
     private readonly embeddingProvider: EmbeddingProvider,
     private readonly qdrantService: QdrantService,
     private readonly prisma: PrismaService,
     private readonly promptBuilder: PromptBuilderService,
-  ) {}
+  ) {
+    this.llm = new ChatGoogleGenerativeAI({
+      model: process.env.GEMINI_LLM_MODEL || 'gemini-flash-latest',
+    });
+  }
 
   async query(params: {
     question: string;
@@ -125,26 +132,56 @@ export class ChatService {
     // -----------------------------------------------------------
     // STEP 4: Build the LLM prompt via PromptBuilderService
     // -----------------------------------------------------------
-    console.log('[ChatService] [STEP 4] Building prompt via PromptBuilderService...');
-    console.log('');
+    // -----------------------------------------------------------
+    // STEP 4: Build prompt and invoke LLM (or fallback if no results)
+    // -----------------------------------------------------------
+    let prompt: string | null = null;
+    let answer = '';
 
-    const prompt = this.promptBuilder.build({
-      question,
-      chunks: results,
-    });
+    if (results.length > 0) {
+      console.log('[ChatService] [STEP 4] Building prompt via PromptBuilderService...');
+      console.log('');
 
-    console.log('------------------------------------------------------');
-    console.log('GENERATED PROMPT');
-    console.log('------------------------------------------------------');
-    console.log(prompt);
-    console.log('------------------------------------------------------');
-    console.log('');
+      prompt = this.promptBuilder.build({
+        question,
+        chunks: results,
+      });
+
+      console.log('------------------------------------------------------');
+      console.log('GENERATED PROMPT');
+      console.log('------------------------------------------------------');
+      console.log(prompt);
+      console.log('------------------------------------------------------');
+      console.log('');
+
+      console.log('[ChatService] [STEP 5] Invoking ChatGoogleGenerativeAI to get answer...');
+      const llmStart = Date.now();
+
+      if (process.env.USE_MOCK_LLM === 'true') {
+        answer = `Mock response: Based on the provided context, yes, no separate Board Resolution is required for Altiora because it is a sole proprietorship.`;
+        console.log(`[ChatService] Mock LLM answered in 0ms`);
+      } else {
+        const response = await this.llm.invoke(prompt);
+        answer = String(response.content);
+        console.log(`[ChatService] LLM answered in ${Date.now() - llmStart}ms`);
+      }
+
+      console.log('------------------------------------------------------');
+      console.log('LLM RESPONSE');
+      console.log('------------------------------------------------------');
+      console.log(answer);
+      console.log('------------------------------------------------------');
+      console.log('');
+    } else {
+      console.log('[ChatService] [STEP 4] No matching contexts found above threshold. Skipping LLM invocation.');
+      answer = "I don't have this information in the uploaded documents.";
+    }
 
     // -----------------------------------------------------------
-    // STEP 5: Persist the retrieval results to chat history
+    // STEP 6: Persist the assistant's answer to chat history
     // -----------------------------------------------------------
     if (userId) {
-      console.log('[ChatService] [STEP 4] Persisting retrieval results to conversation history...');
+      console.log('[ChatService] [STEP 6] Persisting assistant answer to conversation history...');
 
       const conversation = await this.getOrCreateConversation(userId);
 
@@ -152,11 +189,11 @@ export class ChatService {
         data: {
           conversationId: conversation.id,
           role: MessageRole.ASSISTANT,
-          content: assistantContent,
+          content: answer,
         },
       });
 
-      console.log(`[ChatService] [STEP 4] Assistant response saved to conversation ${conversation.id}`);
+      console.log(`[ChatService] [STEP 6] Assistant response saved to conversation ${conversation.id}`);
       console.log('');
     }
 
@@ -170,6 +207,7 @@ export class ChatService {
 
     return {
       input: { question, userId, documentId, topK },
+      answer,
       prompt,
       retrieval: {
         message: assistantContent,
