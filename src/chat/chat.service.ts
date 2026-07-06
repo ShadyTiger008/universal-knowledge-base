@@ -77,9 +77,25 @@ export class ChatService {
     // -----------------------------------------------------------
     // OPTIMIZATION: Check for cached final response in Redis
     // -----------------------------------------------------------
+    let userDocVersion = 'none';
+    if (userId) {
+      try {
+        const readyDocs = await this.prisma.document.findMany({
+          where: { userId, status: 'READY' },
+          select: { id: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (readyDocs.length > 0) {
+          userDocVersion = readyDocs.map(d => d.id).join(',');
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to fetch ready documents for caching: ${err.message}`);
+      }
+    }
+
     const responseCacheKey = this.getCacheKey(
       'chat:response',
-      `${question}:${userId || 'anon'}:${documentId || 'all'}:${topK}`
+      `${question}:${userId || 'anon'}:${documentId || 'all'}:${topK}:${userDocVersion}`
     );
 
     try {

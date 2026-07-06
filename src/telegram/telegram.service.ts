@@ -183,7 +183,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           userId: user.id,
         });
 
-        const replyText = answerResult?.llm?.answer || "I don't have this information in the uploaded documents.";
+        let replyText = answerResult?.llm?.answer || "I don't have this information in the uploaded documents.";
+
+        const sources = answerResult?.llm?.sources;
+        if (sources && sources.length > 0) {
+          replyText += '\n\n📖 *Sources & References:*';
+          sources.forEach((src: any) => {
+            const docName = src.documentName || 'unknown';
+            let srcDetail = `\n• 📄 *${docName}*`;
+            if (src.sheetName) {
+              srcDetail += ` (Sheet: _${src.sheetName}_`;
+              if (src.rowNumber) srcDetail += `, Row: ${src.rowNumber}`;
+              srcDetail += `)`;
+            } else if (src.chunkIndex !== undefined) {
+              srcDetail += ` (Chunk #${src.chunkIndex})`;
+            }
+            replyText += srcDetail;
+          });
+        }
 
         // Dispatch response to the Telegram chat
         await this.communicationRegistry.sendMessage(Platform.TELEGRAM, chatId, replyText);
