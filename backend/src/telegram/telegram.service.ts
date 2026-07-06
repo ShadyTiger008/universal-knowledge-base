@@ -54,6 +54,23 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private async startPolling() {
     this.logger.log('Starting Telegram bot long polling loop...');
     
+    // Auto-clear any active webhook to prevent 409 conflicts on startup
+    try {
+      const config = await this.communicationRegistry.getBotConfig(Platform.TELEGRAM);
+      if (config.token) {
+        this.logger.log('Ensuring webhook is disabled for long polling...');
+        const deleteRes = await fetch(`https://api.telegram.org/bot${config.token}/deleteWebhook`);
+        const deleteData = await deleteRes.json() as { ok: boolean; description?: string };
+        if (deleteData.ok) {
+          this.logger.log('Telegram webhook cleared successfully.');
+        } else {
+          this.logger.warn(`Telegram webhook clear response: ${deleteData.description}`);
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to clear Telegram webhook on startup: ${err.message}`);
+    }
+    
     while (this.running) {
       try {
         const config = await this.communicationRegistry.getBotConfig(Platform.TELEGRAM);
