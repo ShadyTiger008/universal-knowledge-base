@@ -89,9 +89,13 @@ export class DocumentsService {
           console.log('[DocumentService] [STAGE 2] Last row:', parsed.rows[parsed.rows.length - 1].values);
         }
         console.log('[DocumentService] [STAGE 2] Headers:', Array.isArray(parsed.metadata.headers) ? parsed.metadata.headers.join(', ') : '');
-      } else {
-        console.log('[DocumentService] [STAGE 2] Text length:', parsed.text.length, 'chars');
+      } else if (parsed.type === 'markdown') {
+        console.log('[DocumentService] [STAGE 2] Markdown length:', parsed.text.length, 'chars');
         console.log('[DocumentService] [STAGE 2] Preview:', parsed.text.substring(0, 200), '...');
+      } else if (parsed.type === 'csv') {
+        console.log('[DocumentService] [STAGE 2] CSV rows:', parsed.sheets.reduce((sum, s) => sum + s.rows.length, 0));
+      } else {
+        console.log('[DocumentService] [STAGE 2] Text length:', (parsed as import('../common/parsers/types').TextDocumentContent).text.length, 'chars');
       }
 
       // -------------------------------------------------------------
@@ -157,7 +161,7 @@ export class DocumentsService {
         rowCount: parsed.metadata.rowCount,
         columnCount: parsed.metadata.columnCount,
         headers: parsed.metadata.headers,
-        textLength: parsed.type === 'text' ? parsed.text.length : undefined,
+        textLength: parsed.type === 'text' || parsed.type === 'markdown' ? (parsed as any).text.length : undefined,
       };
     } catch (error) {
       console.error('[DocumentService] ERROR in upload pipeline:', error.message);

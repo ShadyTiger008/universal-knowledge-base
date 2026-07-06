@@ -29,6 +29,19 @@ export interface RowDocumentContent {
   metadata: Metadata;
 }
 
+export interface MarkdownDocumentContent {
+  type: 'markdown';
+  text: string;
+  metadata: Metadata;
+}
+
+export interface CsvDocumentContent {
+  type: 'csv';
+  workbookName: string;
+  sheets: WorkbookSheet[];
+  metadata: Metadata;
+}
+
 export interface WorkbookSheet {
   sheetName: string;
   headers: string[];
@@ -43,10 +56,11 @@ export interface WorkbookDocumentContent {
   metadata: Metadata;
 }
 
-export type DocumentContent = TextDocumentContent | RowDocumentContent | WorkbookDocumentContent;
+export type DocumentContent = TextDocumentContent | RowDocumentContent | MarkdownDocumentContent | CsvDocumentContent | WorkbookDocumentContent;
 
 export interface ChunkResult {
   content: string;
   chunkIndex: number;
   tokenCount: number;
+  metadata?: Record<string, unknown>;
 }

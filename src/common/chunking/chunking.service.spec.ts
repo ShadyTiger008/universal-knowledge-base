@@ -18,7 +18,7 @@ describe('ChunkingService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should route PDF files to chunkPdf with cleaning report', async () => {
+  it('should route text type (PDF, DOCX, TXT) to TextChunker with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'text',
       text: 'PDF content',
@@ -28,16 +28,18 @@ describe('ChunkingService', () => {
       },
     };
 
-    const spy = jest.spyOn(service as any, 'chunkPdf');
+    const spy = jest.spyOn(service as any, 'chunkText');
     const result = await service.chunk('test-doc-id', parsedData);
 
     expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
-    expect(result.serviceUsed).toBe('chunkPdf');
+    expect(result.serviceUsed).toBe('TextChunker');
+    expect(result.chunks).toBeDefined();
+    expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.cleaningReport).toBeDefined();
     expect(result.cleaningReport.textStats).toBeDefined();
   });
 
-  it('should route Excel files without guide sheets to chunkExcel with cleaning report', async () => {
+  it('should route workbook type (Excel) to WorkbookChunker with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'workbook',
       workbookName: 'test.xlsx',
@@ -50,7 +52,7 @@ describe('ChunkingService', () => {
               rowNumber: 1,
               values: ['Alice'],
               headers: ['Name'],
-            }
+            },
           ],
           sheetType: 'TABLE',
         },
@@ -61,17 +63,18 @@ describe('ChunkingService', () => {
       },
     };
 
-    const spy = jest.spyOn(service as any, 'chunkExcel');
+    const spy = jest.spyOn(service as any, 'chunkWorkbook');
     const result = await service.chunk('test-doc-id', parsedData);
 
     expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
-    expect(result.serviceUsed).toBe('chunkExcel');
+    expect(result.serviceUsed).toBe('WorkbookChunker');
+    expect(result.chunks).toBeDefined();
+    expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.cleaningReport).toBeDefined();
     expect(result.cleaningReport.rowsProcessed).toBe(1);
-    expect(result.cleaningReport.rowsRemoved).toBe(0);
   });
 
-  it('should route Excel files with GUIDE sheets to creativeIndexChunk with cleaning report', async () => {
+  it('should route workbook with GUIDE sheets to creativeIndexChunk with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'workbook',
       workbookName: 'instructions.xlsx',
@@ -84,7 +87,7 @@ describe('ChunkingService', () => {
               rowNumber: 1,
               values: ['Read instructions'],
               headers: ['Instructions'],
-            }
+            },
           ],
           sheetType: 'GUIDE',
         },
@@ -100,13 +103,14 @@ describe('ChunkingService', () => {
 
     expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, 'Workbook contains GUIDE sheet', expect.any(Object));
     expect(result.serviceUsed).toBe('creativeIndexChunk');
+    expect(result.chunks).toBeDefined();
     expect(result.cleaningReport).toBeDefined();
   });
 
-  it('should route Markdown files to chunkMarkdown with cleaning report', async () => {
+  it('should route markdown type to MarkdownChunker with cleaning report', async () => {
     const parsedData: DocumentContent = {
-      type: 'text',
-      text: '# Welcome',
+      type: 'markdown',
+      text: '# Welcome\n\nThis is an introduction paragraph with enough content to create a chunk.',
       metadata: {
         documentType: 'md',
         originalFilename: 'README.md',
@@ -117,13 +121,16 @@ describe('ChunkingService', () => {
     const result = await service.chunk('test-doc-id', parsedData);
 
     expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
-    expect(result.serviceUsed).toBe('chunkMarkdown');
+    expect(result.serviceUsed).toBe('MarkdownChunker');
+    expect(result.chunks).toBeDefined();
+    expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.cleaningReport).toBeDefined();
+    expect(result.cleaningReport.textStats).toBeDefined();
   });
 
-  it('should route CSV files to chunkCsv with cleaning report', async () => {
+  it('should route csv type to CsvChunker with cleaning report', async () => {
     const parsedData: DocumentContent = {
-      type: 'workbook',
+      type: 'csv',
       workbookName: 'data.csv',
       sheets: [
         {
@@ -134,7 +141,7 @@ describe('ChunkingService', () => {
               rowNumber: 1,
               values: ['val1'],
               headers: ['col1'],
-            }
+            },
           ],
           sheetType: 'TABLE',
         },
@@ -149,11 +156,13 @@ describe('ChunkingService', () => {
     const result = await service.chunk('test-doc-id', parsedData);
 
     expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
-    expect(result.serviceUsed).toBe('chunkCsv');
+    expect(result.serviceUsed).toBe('CsvChunker');
+    expect(result.chunks).toBeDefined();
+    expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.cleaningReport).toBeDefined();
   });
 
-  it('should route unknown files to chunkText by default with cleaning report', async () => {
+  it('should route unknown types to TextChunker by default with cleaning report', async () => {
     const parsedData: DocumentContent = {
       type: 'text',
       text: 'some raw text',
@@ -167,7 +176,10 @@ describe('ChunkingService', () => {
     const result = await service.chunk('test-doc-id', parsedData);
 
     expect(spy).toHaveBeenCalledWith('test-doc-id', parsedData, expect.any(Object));
-    expect(result.serviceUsed).toBe('chunkText');
+    expect(result.serviceUsed).toBe('TextChunker');
+    expect(result.chunks).toBeDefined();
+    expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.cleaningReport).toBeDefined();
+    expect(result.cleaningReport.textStats).toBeDefined();
   });
 });

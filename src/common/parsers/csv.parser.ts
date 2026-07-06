@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as XLSX from 'xlsx';
-import { WorkbookDocumentContent, WorkbookSheet, Row } from './types';
+import { CsvDocumentContent, WorkbookSheet, Row } from './types';
 
 function isEmptyRow(row: any[]): boolean {
   if (!row || row.length === 0) return true;
@@ -107,7 +107,7 @@ function classifySheet(sheetName: string, headers: string[], rows: Row[]): 'TABL
   return 'TABLE';
 }
 
-export async function parseCsv(filePath: string, originalFilename: string): Promise<WorkbookDocumentContent> {
+export async function parseCsv(filePath: string, originalFilename: string): Promise<CsvDocumentContent> {
   console.log('[CSV Parser] Reading CSV file...');
   const buffer = fs.readFileSync(filePath);
   console.log('[CSV Parser] File read, size:', buffer.length, 'bytes');
@@ -123,7 +123,7 @@ export async function parseCsv(filePath: string, originalFilename: string): Prom
   if (nonEmptyRawRows.length === 0) {
     console.log('[CSV Parser] No data rows found');
     return {
-      type: 'workbook',
+      type: 'csv',
       workbookName: originalFilename,
       sheets: [],
       metadata: {
@@ -210,7 +210,7 @@ export async function parseCsv(filePath: string, originalFilename: string): Prom
   console.log('[CSV Parser] Parsed', parsedRows.length, 'rows,', headers.length, 'columns');
 
   return {
-    type: 'workbook',
+    type: 'csv',
     workbookName: originalFilename,
     sheets,
     metadata: {
