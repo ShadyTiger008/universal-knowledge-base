@@ -1,103 +1,25 @@
-# Universal Knowledge Assistant
+# Universal Knowledge Assistant (Monorepo)
 
-A production-grade, asynchronous Retrieval-Augmented Generation (RAG) pipeline built with **NestJS**, **BullMQ**, **Redis (Upstash)**, **Prisma (PostgreSQL)**, **Qdrant (Vector Database)**, and **Google Gemini (LLM & Embeddings)**. 
-
-The Universal Knowledge Assistant is designed to ingest multi-format documents (PDF, Excel, CSV, Word, Markdown, Text) in a decoupled, non-blocking background queue, store and index text chunks as high-dimensional vectors, and retrieve contextually relevant information to provide rate-limit-resilient answers.
+A production-grade, asynchronous Retrieval-Augmented Generation (RAG) platform consisting of a **Next.js Frontend** and a **NestJS Backend Service** integrated with BullMQ, Redis, PostgreSQL (Prisma), Qdrant Vector DB, and Google Gemini API.
 
 ---
 
-## Getting Started
+## Project Directory Structure
 
-### Prerequisites
-
-Ensure you have the following installed and running:
-* **Node.js** (v18 or higher)
-* **PostgreSQL** (local or hosted instance)
-* **Redis** (Upstash Redis is recommended for cloud-based serverless deployment; local Redis is suitable for local development)
-* **Qdrant** (local container or Qdrant Cloud cluster)
-* **Google Gemini API Key** (from Google AI Studio)
-
-### Installation
-
-1. Clone the repository and navigate to the project directory:
-   ```bash
-   cd universal-knowledge-assistant
-   ```
-
-2. Install the dependencies:
-   ```bash
-   npm install
-   ```
-
-### Configuration
-
-Create a `.env` file in the project root by copying the template file:
-```bash
-cp .env.example .env
-```
-
-Configure the environment variables in `.env`:
-
-```ini
-PORT=3000
-
-# Relational Database Connection (Prisma)
-DATABASE_URL="postgresql://postgres:password@localhost:5432/universal_knowledge_assistant?schema=public"
-
-# JSON Web Token Secret Configuration
-JWT_SECRET="your-jwt-secret-key"
-JWT_EXPIRES_IN=7d
-
-# Telegram Notification Bot Integration (Optional)
-TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
-
-# Supabase Storage & Configuration (Optional)
-SUPABASE_URL="https://your-project-id.supabase.co"
-SUPABASE_PUBLISHABLE_KEY="your-publishable-key"
-SUPABASE_SECRET_KEY="your-secret-key"
-SUPABASE_JWKS_URL="https://your-project-id.supabase.co/auth/v1/.well-known/jwks.json"
-
-# Google Gemini API Key
-GOOGLE_API_KEY="your-google-ai-studio-api-key"
-
-# Qdrant Vector DB Configuration
-QDRANT_API_KEY="your-qdrant-api-key"
-QDRANT_CLUSTER_ENDPOINT="https://your-cluster-endpoint.qdrant.io"
-SIMILARITY_THRESHOLD=0.60
-QDRANT_UPSERT_BATCH_SIZE=100
-
-# Redis & BullMQ Queue Configuration (Supports SSL/TLS for Upstash via rediss://)
-REDIS_URL="redis://localhost:6379"
-
-# Debug / Mocks Options
-USE_MOCK_EMBEDDINGS=false
-USE_MOCK_LLM=false
-```
-
-### Running the Application
-
-1. **Prisma DB Sync**: Apply database migrations and seed schemas.
-   ```bash
-   npx prisma db push
-   ```
-
-2. **Start Development Server**: Start the NestJS runtime (both the HTTP API server and the BullMQ background workers will initialize within the same process).
-   ```bash
-   npm run start:dev
-   ```
-
-3. **Queue Monitoring Dashboard**: Access the interactive **Bull Board** UI at `http://localhost:3000/queues` to track background document ingestion jobs, failures, and worker performance in real-time.
+The repository is structured as a monorepo containing:
+* **[backend/](file:///c:/Development/Personal/unviersal-knowledge-assistant/backend)**: The NestJS API server, background ingestion queue worker, database connections, and external service connectors (Telegram, Discord, WhatsApp, and Custom UI).
+* **[frontend/](file:///c:/Development/Personal/unviersal-knowledge-assistant/frontend)**: A Next.js Web UI dashboard built with React and Tailwind CSS.
 
 ---
 
-## High-Level Design
+## High-Level Architecture & Workflows
 
-The system is split into two primary asynchronous workflows: **Document Ingestion** (Write Path) and **Contextual Querying** (Read Path).
+The platform operates on two separate decoupled workflows: **Document Ingestion** (Write Path) and **Contextual Querying** (Read Path).
 
 ```mermaid
 graph TD
     %% Write Path (Ingestion)
-    Client[Client / Bot / Web] -->|1. Upload Doc| API[DocumentsController]
+    Client[Client / Bot / Web] -->|1. Upload Doc| API[backend/DocumentsController]
     API -->|2. Register job & doc| DB[(PostgreSQL DB)]
     API -->|3. Push ingestion job| Queue[(BullMQ Queue)]
     API -->|4. Immediate 202 Accepted| Client
@@ -113,7 +35,7 @@ graph TD
     Worker -->|13. Send Notification| Channels[Telegram / Discord / Web UI]
     
     %% Read Path (RAG Query)
-    Client2[User / Bot] -->|1. Query| ChatAPI[ChatController]
+    Client2[User / Bot] -->|1. Query| ChatAPI[backend/ChatController]
     ChatAPI -->|2. Check answer cache| Cache[(Redis Cache)]
     Cache -->|Cache Hit| ReturnCache[Return cached response]
     Cache -->|Cache Miss| ChatService[ChatService]
@@ -134,128 +56,56 @@ graph TD
 
 ---
 
-## Low-Level Design & Component Specification
+## Quick Start (Running Locally)
 
-### 1. Asynchronous Ingestion Engine (BullMQ & Redis)
-* **`DocumentsService` (Producer)**: Receives file uploads via Multer. Instead of parsing the document on the HTTP thread, it creates a Postgres `Document` record in `UPLOADING` state and pushes a task containing metadata and the temporary file path onto the `document-ingestion` queue. It immediately returns a `202 Accepted` response with the `jobId` so clients don't block.
-* **`DocumentIngestionProcessor` (Consumer)**: Dequeues job data, updating the database status sequentially (`PARSING` at 25%, `CHUNKING` at 50%, `EMBEDDING` at 75%, `INDEXING` at 90%). Once Qdrant indexes the chunks, the database state updates to `READY` (or `FAILED` in case of error). It deletes the temporary local file in a `finally` block to prevent disk leakage.
+### Prerequisites
 
-### 2. Dual-Layer Caching (Redis & `ioredis`)
-* **Embedding Caching**: Generates a stable key based on the question hash (`embedding:md5(model:question)`). This eliminates redundant API calls and rate-limit exhaustion for identical or frequent semantic queries.
-* **Response Caching**: Chat response payloads are stored under keys reflecting the context variables (`chat:response:md5(question:userId:documentId:topK)`). Cached replies are returned within milliseconds. If a cached answer is hit for a logged-in user, the assistant response is still backfilled into PostgreSQL database messages so that chat histories remain contiguous.
-
-### 3. Strategy-Based Multi-Channel Communication Registry
-* **Dynamic Provider Registry (`CommunicationRegistryService`)**: Acts as a central hub that maps platform enums (`TELEGRAM`, `DISCORD`, `WHATSAPP`, `WEB`) to concrete communication strategies. It resolves bot API keys and settings dynamically by:
-  1. Fetching configurations from the PostgreSQL `bot_configs` database table at runtime.
-  2. Falling back to `.env` configuration values (`TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, etc.) if database settings are absent or inactive.
-  This allows changing bot identities, API keys, or active statuses dynamically at runtime without restarting the application.
-* **Concrete Platform Providers**:
-  * **`TelegramProvider`**: Integrates with the Telegram Bot API using Node's native `fetch` (compatible with Node 18+). Features automatic retry logic: if Telegram's strict Markdown parser throws a bad-request validation error (due to unescaped asterisks or underscores in retrieved source text), it automatically retries sending the reply in plain text, ensuring guaranteed message delivery.
-  * **`DiscordProvider`**, **`WhatsappProvider`**, and **`WebProvider`**: Modular, Strategy-compliant skeletons ready to be expanded for other custom platforms.
-* **Unified Notification Router (`NotificationService`)**: Integrates directly with the `CommunicationRegistryService` to dispatch ingestion success or failure progress events back to users on their registered platforms.
-
-### 4. Vector Store Strategy (Qdrant)
-* Chunks are stored in Qdrant with deterministic UUIDs derived from their parent document identity and chunk indices (`chunk_{documentId}_{chunkIndex}`) hashed into a UUIDv4-compliant schema.
-* Document payloads store metadata keys (`userId`, `documentId`, `documentName`, `sourceType`, `sheetName`, `rowNumber`, `section`) enabling runtime retrieval filtering.
-
+You need the following services set up:
+* **Node.js** (v18 or higher)
+* **PostgreSQL** Database
+* **Redis** (Local or Upstash)
+* **Qdrant** Vector DB (Local container or Qdrant Cloud)
+* **Google Gemini API Key**
 
 ---
 
-## API Documentation
+### Step 1: Run the Backend
 
-### Document Upload
-* **Endpoint**: `POST /documents/upload`
-* **Content-Type**: `multipart/form-data`
-* **Body**:
-  * `file`: Binary file (PDF, Excel, Word, CSV, Markdown, Text)
-  * `userId`: Mapped User ID from Postgres
-* **Response (201 Created / 202 Accepted)**:
-  ```json
-  {
-    "documentId": "uuid-string-here",
-    "jobId": "uuid-string-here",
-    "filename": "annual-report.pdf",
-    "status": "UPLOADING",
-    "progress": 0,
-    "message": "Your document upload is complete and is now being processed in the background. You can check the status using the /documents/status/:jobId endpoint."
-  }
-  ```
-
-### Check Ingestion Status
-* **Endpoint**: `GET /documents/status/:jobId`
-* **Response (200 OK)**:
-  ```json
-  {
-    "jobId": "uuid-string-here",
-    "documentId": "uuid-string-here",
-    "filename": "annual-report.pdf",
-    "status": "EMBEDDING",
-    "progress": 75,
-    "error": null,
-    "createdAt": "2026-07-06T12:00:00.000Z"
-  }
-  ```
-
-### Chat / Ask Question
-* **Endpoint**: `POST /chat/query`
-* **Body**:
-  ```json
-  {
-    "question": "Is Altiora a sole proprietorship?",
-    "userId": "user-uuid-here",
-    "documentId": "optional-document-uuid-filter",
-    "topK": 5
-  }
-  ```
-* **Response (200 OK)**:
-  * Includes the LLM-generated `answer`, context `sources`, similarity scores, and detailed retrieval metrics.
-
----
-
-## Telegram Bot Integration & Dynamic Configurations
-
-The Telegram Bot allows users to converse with their ingested documents directly from Telegram.
-
-### 1. Fast Setup via Environment Variable
-To quickly connect a Telegram Bot:
-1. Message `@BotFather` on Telegram and create a new bot.
-2. Copy the API Token.
-3. Paste the token into your `.env` file:
-   ```ini
-   TELEGRAM_BOT_TOKEN="your-telegram-bot-token-here"
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
    ```
-4. Restart the server. The polling service will start automatically, mapping incoming questions to the RAG pipeline.
+2. Copy the template `.env.example` to `.env` and fill in the secrets (Database URL, Redis URL, Gemini API, Qdrant cluster endpoint, etc.).
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+4. Sync database schemas and run migrations:
+   ```bash
+   npx prisma db push
+   ```
+5. Start the backend NestJS server:
+   ```bash
+   npm run start:dev
+   ```
+   * *The backend API will run on `http://localhost:3000` (or `PORT` configured in `.env`).*
+   * *The Bull Board job monitoring dashboard will be accessible at `http://localhost:3000/api/queues/`.*
 
-### 2. Production Dynamic Bot Setup (Database-Driven)
-To change bots dynamically at runtime without restarting the server, insert or update a configuration row in the `bot_configs` PostgreSQL table:
+---
 
-```sql
-INSERT INTO bot_configs (id, platform, token, "botId", "botName", "isActive", "updatedAt")
-VALUES (
-  gen_random_uuid(), 
-  'TELEGRAM', 
-  'your-active-bot-token-here', 
-  '@YourKnowledgeAssistantBot', 
-  'Production Bot', 
-  true, 
-  NOW()
-)
-ON CONFLICT (platform) DO UPDATE 
-SET token = EXCLUDED.token, "botId" = EXCLUDED."botId", "botName" = EXCLUDED."botName", "isActive" = EXCLUDED."isActive", "updatedAt" = NOW();
-```
+### Step 2: Run the Frontend
 
-Whenever updates are polled or messages are dispatched, the application queries this database record first. You can modify the active bot token directly in PostgreSQL at any time to switch active bots on the fly!
-
-### 3. Telegram Interaction Workflow
-When a user interacts with the bot:
-* **Text Queries**:
-  1. **User Auto-Creation**: If the Telegram User's chat ID is not found in PostgreSQL, the system automatically registers them.
-  2. **Typing Indicator**: The bot triggers a visual "typing" feedback status immediately.
-  3. **RAG pipeline Query**: The query is run through the vector search and Gemini LLM. Both the question and reply are logged in the database conversation history.
-  4. **Reply**: The bot replies directly with the context-aware answer.
-* **Document Uploads**:
-  1. **Mime Type Validation**: Supports PDFs, Excel, CSVs, Word, Markdown, and Text files.
-  2. **Immediate Feedback**: Replies with: *"We are processing your file "[filename]". It will be ready within one or two minutes."*
-  3. **File Download & Queueing**: Downloads the file via Telegram's API, writes it to the local `/public/uploads/temp` directory, and pushes it onto the BullMQ background ingestion worker queue.
-  4. **Completion Callback Notification**: Once the background processor completes (or fails), the `NotificationService` calls the `TelegramProvider` to notify the user in the Telegram chat that the document is successfully ingested and ready for query!
-
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+2. Copy the template `.env.example` to `.env` and configure `NEXT_PUBLIC_API_URL` to point to the backend API (`http://localhost:3000/api`).
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+4. Start the Next.js development server:
+   ```bash
+   npm run dev
+   ```
+   * *The frontend app will run on `http://localhost:3001` (or next free port, typically `http://localhost:3000` if the backend is hosted on a different port or system).*
