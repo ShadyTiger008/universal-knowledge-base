@@ -44,6 +44,7 @@ export class ChatService {
     documentId?: string;
     topK?: number;
   }) {
+    let shouldCache = true;
     const { question, userId, documentId, topK = 5 } = params;
 
     console.log('');
@@ -249,6 +250,7 @@ export class ChatService {
         }
       } catch (error) {
         console.error('[ChatService] LLM invocation failed completely:', error);
+        shouldCache = false; // Do not cache error responses!
         if (error.message === 'AI_RATE_LIMIT_EXCEEDED' || error.message.includes('429') || error.message.includes('quota')) {
           answer = "I'm sorry, the AI service is currently rate-limited on the free tier. Please try again in a few moments. (If you are developing locally, you can set USE_MOCK_LLM=true in your .env file to bypass this limit).";
         } else {
@@ -327,11 +329,15 @@ export class ChatService {
       },
     };
 
-    try {
-      // Cache final chat responses for 2 hours (7200 seconds)
-      await this.redisService.set(responseCacheKey, JSON.stringify(responsePayload), 7200);
-    } catch (err) {
-      this.logger.warn(`Failed to write response cache: ${err.message}`);
+    if (shouldCache) {
+      try {
+        // Cache final chat responses for 2 hours (7200 seconds)
+        await this.redisService.set(responseCacheKey, JSON.stringify(responsePayload), 7200);
+      } catch (err) {
+        this.logger.warn(`Failed to write response cache: ${err.message}`);
+      }
+    } else {
+      console.log('[ChatService] Skipping cache write because an invocation error occurred.');
     }
 
     return responsePayload;
