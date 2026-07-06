@@ -6,6 +6,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { ChatModule } from './chat/chat.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { DatabaseModule } from './database/database.module';
+import { UsersModule } from './users/users.module';
 import { configuration } from './config/configuration';
 
 @Module({
@@ -20,6 +21,7 @@ import { configuration } from './config/configuration';
     DocumentsModule,
     ChatModule,
     TelegramModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
