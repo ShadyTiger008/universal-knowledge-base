@@ -151,18 +151,33 @@ export class DocumentsService {
       console.log('===============================================================');
       console.log('[DocumentService] >>> UPLOAD PIPELINE COMPLETED SUCCESSFULLY <<<');
       console.log('===============================================================');
-      return {
+      const response: Record<string, unknown> = {
         id: document.id,
         filename: file.originalname,
         status: DocumentStatus.READY,
         documentType: parsed.metadata.documentType,
-        pageCount: parsed.metadata.pageCount,
-        sheetNames: parsed.metadata.sheetNames,
-        rowCount: parsed.metadata.rowCount,
-        columnCount: parsed.metadata.columnCount,
-        headers: parsed.metadata.headers,
-        textLength: parsed.type === 'text' || parsed.type === 'markdown' ? (parsed as any).text.length : undefined,
       };
+
+      if (parsed.metadata.pageCount != null) {
+        response.pageCount = parsed.metadata.pageCount;
+      }
+      if (parsed.metadata.sheetNames != null) {
+        response.sheetNames = parsed.metadata.sheetNames;
+      }
+      if (parsed.metadata.rowCount != null) {
+        response.rowCount = parsed.metadata.rowCount;
+      }
+      if (parsed.metadata.columnCount != null) {
+        response.columnCount = parsed.metadata.columnCount;
+      }
+      if (parsed.metadata.headers != null) {
+        response.headers = parsed.metadata.headers;
+      }
+      if (parsed.type === 'text' || parsed.type === 'markdown') {
+        response.textLength = (parsed as any).text.length;
+      }
+
+      return response;
     } catch (error) {
       console.error('[DocumentService] ERROR in upload pipeline:', error.message);
       console.error('[DocumentService] Stack:', error.stack);
