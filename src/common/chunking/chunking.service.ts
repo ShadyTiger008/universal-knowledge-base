@@ -337,7 +337,7 @@ export class ChunkingService {
 
       const fields = headers
         .map((h, i) => ({ header: h, value: normalizedValues[i] ?? '' }))
-        .filter(({ value }) => value.trim() !== '');
+        .filter(({ value }) => value.trim() !== '' && !this.isDashOnly(value));
 
       const content = fields.length > 0
         ? fields.map(({ header, value }) => `${header}: ${value}`).join('\n')
@@ -499,7 +499,7 @@ export class ChunkingService {
           const normalized = this.normalizeCellValue(raw);
           return { header: h, value: normalized };
         })
-        .filter(({ value }) => value.trim() !== '')
+        .filter(({ value }) => value.trim() !== '' && !this.isDashOnly(value))
         .map(({ header, value }) => `${header}: ${value}`);
 
       if (fields.length > 0) {
@@ -510,7 +510,7 @@ export class ChunkingService {
     } else {
       const nonEmpty = row.values
         .map(v => this.normalizeCellValue(v))
-        .filter(v => v.trim() !== '');
+        .filter(v => v.trim() !== '' && !this.isDashOnly(v));
       if (nonEmpty.length > 0) {
         parts.push(nonEmpty.join(' | '));
       } else {
@@ -524,6 +524,10 @@ export class ChunkingService {
   /**
    * Normalize a cell value: money formatting and emoji normalization.
    */
+  private isDashOnly(value: string): boolean {
+    return /^-+$/.test(value.trim());
+  }
+
   private normalizeCellValue(value: string): string {
     let result = value.trim();
     result = this.normalizeMoney(result);
@@ -582,7 +586,7 @@ export class ChunkingService {
     if (counts.size === 1) {
       const count = [...counts.values()][0];
       if (count >= 2) {
-        return nonEmoji ? `Rating: ${count} - ${nonEmoji}` : `Rating: ${count}`;
+        return nonEmoji ? `${count} - ${nonEmoji}` : `${count}`;
       }
     }
 

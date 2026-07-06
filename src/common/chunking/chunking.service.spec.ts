@@ -294,7 +294,7 @@ describe('ChunkingService', () => {
   // UNIVERSAL EMOJI NORMALIZATION (Fix #4)
   // ---------------------------------------------------------------
 
-  it('should normalize repeated star emoji (2+) to Rating: N, strip single stars', async () => {
+  it('should normalize repeated star emoji (2+) to count, strip single stars', async () => {
     const parsedData: DocumentContent = {
       type: 'csv',
       workbookName: 'ratings.csv',
@@ -312,10 +312,10 @@ describe('ChunkingService', () => {
 
     const result = await service.chunk('doc-1', parsedData);
 
-    // 3 stars → rating
-    expect(result.chunks[0].content).toContain('Rating: 3');
+    // 3 stars → count
+    expect(result.chunks[0].content).toContain('Severity: 3');
     // Single star is ambiguous (could be rating or incidental), so it's stripped
-    expect(result.chunks[1].content).not.toContain('Rating:');
+    expect(result.chunks[1].content).not.toContain('Severity:');
     expect(result.chunks[1].content).toContain('Petty Theft');
   });
 
@@ -337,8 +337,8 @@ describe('ChunkingService', () => {
 
     const result = await service.chunk('doc-1', parsedData);
 
-    expect(result.chunks[0].content).toContain('Rating: 5');
-    expect(result.chunks[1].content).toContain('Rating: 4');
+    expect(result.chunks[0].content).toContain('Score: 5');
+    expect(result.chunks[1].content).toContain('Score: 4');
   });
 
   it('should strip incidental emojis from text content', async () => {
@@ -383,6 +383,40 @@ describe('ChunkingService', () => {
     const result = await service.chunk('doc-1', parsedData);
 
     expect(result.chunks[0].content).toContain('Rating: 2 - Severe fire damage');
+
+  });
+
+  // ---------------------------------------------------------------
+  // DASH-ONLY VALUE FILTERING
+  // ---------------------------------------------------------------
+
+  it('should filter dash-only values (e.g. "-") as meaningless', async () => {
+    const parsedData: DocumentContent = {
+      type: 'csv',
+      workbookName: 'penal.csv',
+      sheets: [{
+        sheetName: 'Penal Code',
+        headers: ['CRIME', 'FINE', 'NOTES'],
+        rows: [
+          { rowNumber: 1, values: ['Theft', '-', 'Has a note'], headers: ['CRIME', 'FINE', 'NOTES'], isHeading: false },
+          { rowNumber: 2, values: ['Assault', '--', ''], headers: ['CRIME', 'FINE', 'NOTES'], isHeading: false },
+        ],
+        sheetType: 'TABLE',
+      }],
+      metadata: { documentType: 'csv', originalFilename: 'penal.csv' },
+    };
+
+    const result = await service.chunk('doc-1', parsedData);
+
+    // Row 1: FINE: - should be filtered out, NOTES preserved
+    expect(result.chunks[0].content).toContain('CRIME: Theft');
+    expect(result.chunks[0].content).not.toContain('FINE:');
+    expect(result.chunks[0].content).toContain('NOTES: Has a note');
+
+    // Row 2: FINE: -- should be filtered, empty NOTES also filtered
+    expect(result.chunks[1].content).toContain('CRIME: Assault');
+    expect(result.chunks[1].content).not.toContain('FINE:');
+    expect(result.chunks[1].content).not.toContain('NOTES:');
   });
 
   // ---------------------------------------------------------------
