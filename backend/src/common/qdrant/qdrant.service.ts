@@ -148,4 +148,19 @@ export class QdrantService implements OnModuleInit {
       throw error;
     }
   }
+
+  async checkHealth(): Promise<{ status: string; details?: string }> {
+    if (!this.client) {
+      return { status: 'disabled', details: 'Client configuration missing' };
+    }
+    try {
+      if (!this.ready) {
+        return { status: 'down', details: 'Service initialized but not ready' };
+      }
+      await this.client.getCollections();
+      return { status: 'up', details: 'Connected, collection verified' };
+    } catch (err) {
+      return { status: 'down', details: err.message };
+    }
+  }
 }

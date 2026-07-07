@@ -11,6 +11,11 @@ export class ResponseInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
     const url = request.originalUrl || request.url;
+    const path = url.split('?')[0];
+
+    if (path === '/' || path === '/health') {
+      return next.handle();
+    }
 
     return next.handle().pipe(
       map(data => ({
